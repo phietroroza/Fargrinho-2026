@@ -1,2 +1,2 @@
 # Fargrinho-2026
-Meu jogo foi inspirado no Farming Simulator e serviu de base para a criação do Fargrinho 2026. Esta é uma versão básica, mas que já incorpora conteúdos importantes, como a sustentabilidade e a conscientização sobre práticas agrícolas responsáveis.
+Fargrinho 2026 é um jogo inspirado no Farming Simulator que busca ensinar conceitos de agricultura sustentável de forma interativa. O jogador administra uma fazenda, cultiva plantações, cuida dos recursos naturais e toma decisões que impactam a sustentabilidade da propriedade.
