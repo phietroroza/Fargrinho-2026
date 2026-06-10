@@ -1,0 +1,3358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agrinho Farming V4</title>
+<style>
+body{margin:0;overflow:hidden;font-family:Arial,sans-serif;background:#000;}
+#info{position:absolute;top:10px;left:10px;color:white;background:rgba(0,0,0,.5);padding:10px;border-radius:10px;z-index:100;}
+#minimapa-container{position:fixed; bottom:20px; right:20px; width:200px; height:200px; border:3px solid #fff; background:rgba(0,0,0,0.5); border-radius:10px; overflow:hidden;z-index:100;}
+#relogio{position:absolute; top:5px; left:5px; color:#00ff00; font-family:monospace; font-size:14px; background:rgba(0,0,0,0.7); padding:2px 6px; border:1px solid #00ff00;}
+#mapa-grande{border:3px solid #fff; background:#1a3d1a; display:block;}
+#mapa{display:none; justify-content:center; align-items:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:1000;}
+#game{position:absolute; top:0; left:0; width:100%; height:100%; display:block;}
+#hud-agrinho{position:absolute; top:10px; right:10px; background:rgba(74,124,89,.85); color:white; padding:8px 10px; border-radius:8px; font-family:Arial; font-size:12px; line-height:1.4; border:1px solid #2d5016;}
+#hud-agrinho span{font-weight:bold; color:#ffeb3b;}
+#hud-agrinho button{margin-top:4px; width:100%; font-size:11px; padding:2px; cursor:pointer; border:none; border-radius:4px; background:#2d5016; color:white;}
+#hud-agrinho button:hover{background:#1a3009;}
+</style>
+</head>
+<body>
+<div id="info">🌾 Agrinho Farming V4<br>[L] Tutorial</div>
+<div id="minimapa-container">
+    <canvas id="minimapa" width="200" height="200"></canvas>
+    <div id="relogio">06:00</div>
+</div>
+<div id="mapa">
+    <canvas id="mapa-grande" width="800" height="600"></canvas>
+    <div style="position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); color:white; padding:10px; border-radius:5px; font-family:Arial;">
+        [H] Fechar Mapa | [ESC] Fechar
+    </div>
+</div>
+<canvas id="game"></canvas>
+<div id="hud-agrinho">
+  <div>💰 Dinheiro: R$ <span id="dinheiro">500</span></div>
+  <div>🌱 Sementes: <span id="sementes">10</span></div>
+  <div>♻️ Sustentabilidade: <span id="sustent">100</span>%</div>
+  <div style="width:100%; background:#333; border-radius:4px; height:10px; margin-top:2px;">
+    <div id="barra-sustentabilidade" style="width:100%; background:#4CAF50; height:10px; border-radius:4px; transition:width 0.3s, background 0.3s;"></div>
+  </div>
+  <div>Vacas: <span id="vacas">0</span></div>
+  <div>Leite: <span id="leite">0L</span></div>
+  <button onclick="comprarVaca()">Comprar Vaca R$500</button>
+  <button onclick="venderLeite()">Vender Leite R$2.65/L</button>
+  <div id="campo-info" style="display:none; margin-top:8px; border-top:1px solid #fff; padding-top:6px;">
+    <div>🌾 Campo: <span id="vida-campo">100%</span></div>
+    <div style="width:100%; background:#333; border-radius:4px; height:10px; margin-top:4px;">
+      <div id="barra-vida-campo" style="width:100%; background:#4CAF50; height:10px; border-radius:4px; transition:all 0.3s;"></div>
+    </div>
+    <div style="font-size:11px; margin-top:4px; opacity:0.8;">Regenera em: <span id="timer-regen">2:45</span></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// =====================================
+// VARIÁVEIS GLOBAIS
+// =====================================
+let dinheiro = 500, sementes = 10, sustentabilidade = 100;
+let campoAlvoQuimico = null;
+let campos = [];
+let vacas = 0;
+let leite = 0;
+let vehicles = {};
+let currentVehicle = 'tractor';
+let campoAtualHUD = null;
+let tempoRegeneracao = 165;
+let intervaloRegen = null;
+let modoArar = false;
+let campoAtual = null;
+let posicaoInicialArar = null;
+let direcaoArar = null;
+let implemento = null;
+let aradoEngatado = false;
+let plantadeiraEngatada = false;
+let colheitadeiraEngatada = false;
+let modoEscolhaAgrotoxico = false;
+let campoAguardandoAgrotoxico = null;
+let pausarJogo = false;
+let tutorialAtivo = false;
+let dicaAtual = 0;
+let vacas3D = [];
+let precoVaca = 500;
+let precoLeite = 3;
+let producaoPorDia = 50;
+let segundosPorDia = 165;
+let producaoPorSegundo = producaoPorDia / segundosPorDia;
+
+const corTrigoSeco = 0xDAA520;
+let motorAtivo = false;
+let motorOsc = null;
+let motorGain = null;
+let galpoesVacas = [];
+const obstaculos = [];
+const animais = [];
+const CAMINHAO_MAX = 5000;
+const COLHEITADEIRA_MAX = 1000;
+const CHUNK_SIZE = 120;
+let VIEW_DISTANCE = 1;
+let worldObjects = new Map();
+const corSoloVivo = new THREE.Color(0x4CAF50);
+const corSoloMorto = new THREE.Color(0xE0E0E0);
+const geoCauleGra = new THREE.CylinderGeometry(0.04, 0.05, 1.6, 3);
+const geoGrao = new THREE.SphereGeometry(0.04, 3, 3);
+const matCauleSeco = new THREE.MeshLambertMaterial({color: 0xF9A825});
+const matEspigaSeco = new THREE.MeshLambertMaterial({color: 0xFBC02D});
+const dummy = new THREE.Object3D();
+let tempo = 0;
+const velocidadeTempo = 0.0001;
+
+let gameConfig = {
+    velocidades: { tractor: 0.7, colheitadeira: 0.5, caminhao: 1.5 },
+    loja: { precoSemente: 100, qtdSementePack: 10, precoVendaCarga: 200 }
+};
+
+// =====================================
+// SETUP THREE.JS
+// =====================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 80, 180);
+
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.set(0, 120, 180);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game'), antialias: true });
+renderer.setClearColor(0x87CEEB);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+
+// MINIMAPA
+const minimapaCanvas = document.getElementById('minimapa');
+const minimapaRenderer = new THREE.WebGLRenderer({canvas: minimapaCanvas, alpha: true, antialias: true});
+minimapaRenderer.setSize(200, 200);
+minimapaRenderer.setClearColor(0x000000, 0);
+const minimapaCamera = new THREE.OrthographicCamera(-150, 150, 150, -150, 0.1, 1000);
+minimapaCamera.position.set(0, 300, 0);
+minimapaCamera.lookAt(0, 0, 0);
+const playerMarkerGeo = new THREE.ConeGeometry(4, 10, 4);
+const playerMarkerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+const playerMarker = new THREE.Mesh(playerMarkerGeo, playerMarkerMat);
+playerMarker.rotation.x = Math.PI;
+playerMarker.position.y = 50;
+scene.add(playerMarker);
+
+// LUZES
+const sun = new THREE.DirectionalLight(0xffffff,1.2);
+sun.position.set(200,300,100);
+sun.castShadow = true;
+scene.add(sun);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+
+// TERRENO
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(800,800),
+    new THREE.MeshLambertMaterial({color:0x6ab04c})
+);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// =====================================
+// FUNÇÕES DO SOLO
+// =====================================
+function atualizarVisualSolo(campo) {
+    if (!campo.mesh) return;
+    const saude = campo.vida / 100;
+    if (saude > 0.7) campo.mesh.material.color.set(0x6B8E23);
+    else if (saude > 0.3) campo.mesh.material.color.set(0x8B7355);
+    else campo.mesh.material.color.set(0x5C4033);
+}
+
+function danificarSolo(campo, dano) {
+    campo.vida = THREE.MathUtils.clamp(campo.vida - dano, 0, 100);
+    atualizarVisualSolo(campo);
+}
+
+window.dinheiro = dinheiro;
+window.sementes = sementes;
+window.sustentabilidade = sustentabilidade;
+window.campos = campos;
+window.danificarSolo = danificarSolo;
+campos.forEach(campo => atualizarVisualSolo(campo));
+
+// =====================================
+// SISTEMA DE SOM
+// =====================================
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioContext();
+
+function mostrarmsg(texto) {
+  if(texto.startsWith('❌')) tocarSom('erro');
+  const msg = document.createElement('div');
+  msg.innerText = texto;
+  msg.style.cssText = `
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+    background:#2d5016; color:white; padding:10px 20px; border-radius:20px;
+    font-family:Arial; z-index:999;
+  `;
+  document.body.appendChild(msg);
+  setTimeout(() => msg.remove(), 3000);
+}
+
+function tocarSom(tipo){
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    if(tipo === 'dinheiro'){
+        osc.frequency.value = 800;
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    }
+    if(tipo === 'plantar'){
+        osc.frequency.value = 400;
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+    }
+    if(tipo === 'colher'){
+        osc.frequency.value = 300;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+    }
+    if(tipo === 'erro'){
+        osc.frequency.value = 200;
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    }
+    if(tipo === 'spray'){
+        osc.frequency.value = 600;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+    }
+}
+let _vacas = 0;
+Object.defineProperty(window, 'vacas', {
+    get() { return _vacas; },
+    set(v) { 
+        console.log('Alguém mudou vacas para:', v); 
+        console.trace(); // mostra quem chamou
+        _vacas = v; 
+    }
+});
+function updateHUD(){
+
+    document.getElementById('dinheiro').textContent = dinheiro;
+    document.getElementById('sementes').textContent = sementes;
+    document.getElementById('sustent').textContent = sustentabilidade;
+let spanVaca = document.getElementById('vacas');
+spanVaca.textContent = vacas;
+spanVaca.style.color = 'white';
+    document.getElementById('leite').textContent = leite.toFixed(2) + 'L';
+    
+    let barra = document.getElementById('barra-sustentabilidade');
+    if (barra) {
+        barra.style.width = sustentabilidade + '%';
+        barra.style.background = sustentabilidade > 70 ? '#4CAF50' : sustentabilidade > 40 ? '#FFC107' : '#F44336';
+    }
+}
+
+
+
+function alterarSustentabilidade(val){ sustentabilidade += val; }
+function abrirEscolhaAgrotoxico(campo){}
+function spawnarTrigosNoCampo(campo, estagio){}
+
+function cancelarArar() {
+    if(campoAtual) {
+        campoAtual.arando = false;
+        campoAtual.progressoArado = 0;
+    }
+    modoArar = false;
+    campoAtual = null;
+    posicaoInicialArar = null;
+    updateHUD();
+    mostraMsg('❌ Cancelado! Tente de novo');
+}
+
+function desengatar(){
+    if(modoArar) {
+        cancelarArar();
+    }
+    aradoEngatado = false;
+    plantadeiraEngatada = false;
+    colheitadeiraEngatada = false;
+    implemento = null;
+    mostraMsg('🔧 Implemento desengatado');
+}
+
+function atualizarTrigosNoCampo(campo, novoEstagio, qualidade = 'boa'){
+    if(!campo.trigos) return;
+    
+    campo.fase = novoEstagio;
+    if(campo.trigosMesh) scene.remove(campo.trigosMesh);
+    
+    if(novoEstagio === 0){
+        matCauleSeco.color.set(0x4CAF50);
+        matEspigaSeco.color.set(0x66BB6A);
+    } else if(novoEstagio === 1){
+        matCauleSeco.color.set(0x8BC34A);
+        matEspigaSeco.color.set(0xCDDC39);
+    } else {
+        if(qualidade === 'podre'){
+            matCauleSeco.color.set(0x5D4037);
+            matEspigaSeco.color.set(0x6D4C41);
+        } else {
+            matCauleSeco.color.set(0xF9A825);
+            matEspigaSeco.color.set(0xFBC02D);
+        }
+    }
+    
+    spawnarTrigosNoCampo(campo, novoEstagio);
+}
+  function finalizarCampo() {
+    tocarSom('plantar');
+    if (!campoAtual) return;
+
+    if (implemento === 'arado') {
+        campoAtual.arado = true;
+        campoAtual.plantado = false;
+        campoAtual.pronto = false;
+        campoAtual.mesh.material.color.set(0x4E342E);
+        alterarSustentabilidade(1);
+        mostraMsg('✅ Terra arada com sucesso! Engate a plantadeira agora');
+    }
+    else if (implemento === 'plantadeira') {
+        if (sementes < 10) {
+            mostraMsg('❌ Precisa de 10 sementes pra plantar 1 campo inteiro!');
+            cancelarArar();
+            return;
+        }
+
+        // DANO NO SOLO AO PLANTAR
+        danificarSolo(campoAtual, 10);
+        
+        // SISTEMA DE ROTAÇÃO - penaliza monocultura
+        if(campoAtual.ultimoCultivo === 'trigo'){
+            campoAtual.colheitasSeguidas++;
+            let danoExtra = campoAtual.colheitasSeguidas * 10; // 10, 20, 30...
+            danificarSolo(campoAtual, danoExtra);
+            mostraMsg(`⚠️ Monocultura! ${campoAtual.colheitasSeguidas}ª vez seguida. Solo -${danoExtra}%`);
+        } else {
+            campoAtual.colheitasSeguidas = 1; // Primeira vez ou trocou cultivo
+            if(campoAtual.ultimoCultivo !== null) mostraMsg('🌱 Rotação de cultura! Solo preservado');
+        }
+
+        campoAtual.ultimoCultivo = 'trigo'; // Marca que plantou trigo
+        sementes -= 10;
+        campoAtual.plantado = true;
+        campoAtual.arado = false;
+        campoAtual.pronto = false;
+        campoAtual.fase = 0;
+        campoAtual.trigos = []; // Array pros meshes 3D
+        
+        // SPAWNA OS BROTOS 3D
+        spawnarTrigosNoCampo(campoAtual, 0);
+        mostraMsg('🌱 Plantado! Crescimento: 1 minuto');
+
+        const campoPlantadoRef = campoAtual; // guarda referência pra usar nos timeouts
+
+        setTimeout(() => {
+            if (campoPlantadoRef && campoPlantadoRef.mesh && campoPlantadoRef.plantado) {
+                campoPlantadoRef.fase = 1;
+                atualizarTrigosNoCampo(campoPlantadoRef, 1); // Crescendo
+                mostraMsg('🌿 Crescendo...');
+            }
+        }, 20000);
+
+        setTimeout(() => {
+            if (campoPlantadoRef && campoPlantadoRef.mesh && campoPlantadoRef.plantado) {
+                campoPlantadoRef.fase = 2;
+                atualizarTrigosNoCampo(campoPlantadoRef, 2); // Quase pronto
+                mostraMsg('🌾 Quase pronto!');
+            }
+        }, 40000);
+
+        setTimeout(() => {
+            if (campoPlantadoRef && campoPlantadoRef.mesh && campoPlantadoRef.plantado) {
+                campoPlantadoRef.fase = 3;
+                campoPlantadoRef.pronto = true;
+                
+                let qualidade = 'boa';
+                if(campoPlantadoRef.vida < 40) qualidade = 'podre';
+                else if(campoPlantadoRef.vida < 70) qualidade = 'verde';
+                campoPlantadoRef.qualidade = qualidade;
+                
+                atualizarTrigosNoCampo(campoPlantadoRef, 3, qualidade);
+                abrirEscolhaAgrotoxico(campoPlantadoRef); // ← ABRE O MODAL AUTOMÁTICO
+            }
+        }, 60000);
+    }
+
+    if (campoAtual) {
+        campoAtual.arando = false;
+        campoAtual.progressoArado = 0;
+    }
+    modoArar = false;
+    campoAtual = null;
+    posicaoInicialArar = null;
+    updateHUD();
+}
+ function mostraMsg(texto){
+  if(texto.startsWith('❌')) tocarSom('erro');
+  const msg = document.createElement('div');
+  msg.innerText = texto;
+  msg.style.cssText = `
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+    background:#2d5016; color:white; padding:10px 20px; border-radius:20px;
+    font-family:Arial; z-index:999;
+  `;
+  document.body.appendChild(msg);
+  setTimeout(() => msg.remove(), 3000);
+}
+function tocarSom(tipo){
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    if(tipo === 'dinheiro'){
+        osc.frequency.value = 800;
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    }
+    if(tipo === 'plantar'){
+        osc.frequency.value = 400;
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+    }
+    if(tipo === 'colher'){
+        osc.frequency.value = 300;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+    }
+    if(tipo === 'erro'){
+        osc.frequency.value = 200;
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    }
+    if(tipo === 'spray'){
+        osc.frequency.value = 600;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+    }
+}
+
+function somMotor(ligado){
+    if(ligado &&!motorAtivo){
+        motorOsc = audioCtx.createOscillator();
+        motorGain = audioCtx.createGain();
+        motorOsc.connect(motorGain);
+        motorGain.connect(audioCtx.destination);
+        motorOsc.frequency.value = 60;
+        motorGain.gain.value = 0.05;
+        motorOsc.start();
+        motorAtivo = true;
+    }
+    if(!ligado && motorAtivo){
+        motorGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+        setTimeout(() => motorOsc.stop(), 500);
+        motorAtivo = false;
+    }
+}
+  function descarregarColheitadeira() {
+    if (currentVehicle!== 'colheitadeira') {
+        mostraMsg('❌ Pilote a colheitadeira [TAB] pra descarregar');
+        return;
+    }
+
+    const colheitadeira = vehicles.colheitadeira;
+    const caminhao = vehicles.caminhao;
+
+    if (colheitadeira.storage <= 0) {
+        mostraMsg('⚠️ Tanque vazio!');
+        return;
+    }
+
+    if (!caminhao.mesh) {
+        mostraMsg('❌ Caminhão não encontrado no mapa!');
+        return;
+    }
+
+    // Checa distância
+    const distancia = colheitadeira.mesh.position.distanceTo(caminhao.mesh.position);
+    if (distancia > 18) {
+        mostraMsg('❌ Encoste no caminhão pra descarregar');
+        return;
+    }
+
+    // Checa espaço no caminhão
+    const espacoCaminhao = caminhao.maxStorage - caminhao.storage;
+    if (espacoCaminhao <= 0) {
+        mostraMsg('⚠️ Caminhão cheio! Venda na fábrica [B]');
+        return;
+    }
+
+    const transferir = Math.min(colheitadeira.storage, espacoCaminhao);
+
+    // Transfere carga + histórico de qualidade pra venda
+    colheitadeira.cargas = colheitadeira.cargas || [];
+    caminhao.cargas = caminhao.cargas || [];
+
+    caminhao.storage += transferir;
+    caminhao.cargas.push(...colheitadeira.cargas.splice(0, transferir));
+    colheitadeira.storage -= transferir;
+
+    mostraMsg(`✅ Descarregou ${transferir} cargas | Caminhão: ${caminhao.storage}/${caminhao.maxStorage}`);
+    updateHUD();
+}
+  function criarCidade(){
+    for(let i = -1; i <= 1; i++){
+        const ruaH = new THREE.Mesh(
+            new THREE.BoxGeometry(150,0.2,10),
+            new THREE.MeshLambertMaterial({color:0x333333})
+        );
+        ruaH.position.set(220,0.1,i*40);
+        scene.add(ruaH);
+        
+        const ruaV = new THREE.Mesh(
+            new THREE.BoxGeometry(10,0.2,150),
+            new THREE.MeshLambertMaterial({color:0x333333})
+        );
+        ruaV.position.set(190 + i*40,0.1,0);
+        scene.add(ruaV);
+    }
+    
+    for(let x = 0; x < 3; x++){
+        for(let z = 0; z < 2; z++){
+            const casa = new THREE.Group();
+            const base = new THREE.Mesh(
+                new THREE.BoxGeometry(8,6,10),
+                new THREE.MeshLambertMaterial({color: x%2 ? 0xD2B48C : 0xF5DEB3})
+            );
+            base.position.y = 3;
+            const telhado = new THREE.Mesh(
+                new THREE.ConeGeometry(7,4,4),
+                new THREE.MeshLambertMaterial({color: 0x8B0000})
+            );
+            telhado.position.y = 8;
+            telhado.rotation.y = Math.PI/4;
+            casa.add(base);
+            casa.add(telhado);
+            casa.position.set(200 + x*40, 0,-30 + z*60);
+            scene.add(casa);
+        }
+    }
+    
+    for(let i = 0; i < 2; i++){
+        const predio = new THREE.Mesh(
+            new THREE.BoxGeometry(10,25,10),
+            new THREE.MeshLambertMaterial({color:0x999999})
+        );
+        predio.position.set(260, 12.5, 10 + i*40);
+        scene.add(predio);
+    }
+// PREFEITURA MODERNA - ESTILO PAÇO MUNICIPAL CARAMBEÍ
+const prefeitura = new THREE.Group();
+
+// 1. BLOCO PRINCIPAL - TIJOLO LARANJA
+const blocoTijolo = new THREE.Mesh(
+    new THREE.BoxGeometry(30,18,25),
+    new THREE.MeshLambertMaterial({color:0xC65D3B}) // Tijolo laranja
+);
+blocoTijolo.position.set(0, 9, -5); // Joga pra trás
+blocoTijolo.castShadow = true;
+prefeitura.add(blocoTijolo);
+
+// Janelas pretas em fita - 3 andares
+for(let andar = 0; andar < 3; andar++){
+    for(let i = 0; i < 5; i++){
+        const janela = new THREE.Mesh(
+            new THREE.BoxGeometry(3,2,0.2),
+            new THREE.MeshLambertMaterial({color:0x111111})
+        );
+        janela.position.set(-12 + i*6, 4 + andar*5, 7.6);
+        prefeitura.add(janela);
+    }
+}
+
+// 2. BLOCO FRONTAL - CONCRETO COM VIDRO
+const blocoConcreto = new THREE.Mesh(
+    new THREE.BoxGeometry(35,18,15),
+    new THREE.MeshLambertMaterial({color:0xD3D3D3}) // Cinza concreto
+);
+blocoConcreto.position.set(0, 9, 7.5);
+blocoConcreto.castShadow = true;
+prefeitura.add(blocoConcreto);
+
+// Marquises de concreto - 3 níveis igual da foto
+for(let nivel = 0; nivel < 3; nivel++){
+    const marquise = new THREE.Mesh(
+        new THREE.BoxGeometry(36,2,4),
+        new THREE.MeshLambertMaterial({color:0xC0C0C0})
+    );
+    marquise.position.set(0, 6 + nivel*5, 15);
+    marquise.castShadow = true;
+    prefeitura.add(marquise);
+}
+
+// Vidro contínuo entre marquises - 2 faixas
+for(let nivel = 0; nivel < 2; nivel++){
+    const vidro = new THREE.Mesh(
+        new THREE.BoxGeometry(32,3,0.2),
+        new THREE.MeshLambertMaterial({
+            color:0x87CEEB, 
+            transparent: true, 
+            opacity: 0.4
+        })
+    );
+    vidro.position.set(0, 8.5 + nivel*5, 14.9);
+    prefeitura.add(vidro);
+}
+
+// 3. TÉRREO VAZADO - PILOTIS
+const pilotis = [];
+for(let i = -2; i <= 2; i++){
+    const pilar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.5,5),
+        new THREE.MeshLambertMaterial({color:0x999999})
+    );
+    pilar.position.set(i*8, 2.5, 10);
+    prefeitura.add(pilar);
+}
+
+// 4. ENTRADA DE VIDRO
+const entrada = new THREE.Mesh(
+    new THREE.BoxGeometry(8,4,0.2),
+    new THREE.MeshLambertMaterial({
+        color:0x87CEEB,
+        transparent: true,
+        opacity: 0.3
+    })
+);
+entrada.position.set(0, 2, 14.9);
+prefeitura.add(entrada);
+
+// 5. LETREIRO "PAÇO MUNICIPAL"
+const canvas = document.createElement('canvas');
+canvas.width = 512; canvas.height = 64;
+const ctx = canvas.getContext('2d');
+ctx.fillStyle = '#D3D3D3'; ctx.fillRect(0,0,512,64);
+ctx.fillStyle = '#333'; ctx.font = 'bold 32px Arial';
+ctx.textAlign = 'center';
+ctx.fillText('PAÇO MUNICIPAL', 256, 42);
+const tex = new THREE.CanvasTexture(canvas);
+const letreiro = new THREE.Mesh(
+    new THREE.PlaneGeometry(20,2.5),
+    new THREE.MeshBasicMaterial({map: tex})
+);
+letreiro.position.set(0, 5.5, 17.1);
+prefeitura.add(letreiro);
+
+// 6. ESTACIONAMENTO NA FRENTE
+const estacionamento = new THREE.Mesh(
+    new THREE.BoxGeometry(50,0.1,30),
+    new THREE.MeshLambertMaterial({color:0x777777})
+);
+estacionamento.position.set(0, 0.05, 35);
+prefeitura.add(estacionamento);
+
+// Faixas do estacionamento
+for(let i = -4; i <= 4; i++){
+    const faixa = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3,0.11,4),
+        new THREE.MeshLambertMaterial({color:0xFFFFFF})
+    );
+    faixa.position.set(i*5, 0.06, 35);
+    prefeitura.add(faixa);
+}
+
+// Posição final na cidade
+prefeitura.position.set(250, 0, -95);
+scene.add(prefeitura);
+ } 
+
+criarCidade();
+// Campo 4 e 5 - AGORA O 'campos' JÁ EXISTE
+const field4 = new THREE.Mesh(new THREE.BoxGeometry(60,0.2,40),new THREE.MeshLambertMaterial({color:0xE0E0E0}));
+field4.position.set(20,0.1,100);
+scene.add(field4);
+campos.push({mesh: field4, vida: 100, plantado: false, pronto: false, arado: false, arando: false, progressoArado: 0, fase: 0, comprado: false, preco: 1200});
+
+const field5 = new THREE.Mesh(new THREE.BoxGeometry(60,0.2,40),new THREE.MeshLambertMaterial({color:0xE0E0E0}));
+field5.position.set(40,0.1,40);
+scene.add(field5);
+campos.push({mesh: field5, vida: 100, plantado: false, pronto: false, arado: false, arando: false, progressoArado: 0, fase: 0, comprado: false, preco: 1500});
+
+// =====================================
+// FUNÇÕES DE SOLO
+// =====================================
+
+function atualizarVisualSolo(lote) {
+    lote.vida = THREE.MathUtils.clamp(lote.vida, 0, 100);
+    lote.mesh.material.color.lerpColors(corSoloMorto, corSoloVivo, lote.vida / 100);
+    lote.mesh.material.roughness = 1 - (lote.vida / 200);
+}
+
+function danificarSolo(lote, dano, motivo = '') {
+    const vidaAntes = lote.vida;
+    lote.vida -= dano;
+    lote.vida = THREE.MathUtils.clamp(lote.vida, 0, 100);
+    atualizarVisualSolo(lote);
+    atualizarBarraVidaCampo();
+    if (lote.vida <= 0 && vidaAntes > 0) {
+        tocarSom('erro');
+        mostraMsg(`💀 SOLO MORTO! Campo ${motivo} virou deserto. Precisa de pousio!`);
+        lote.mesh.material.color.set(0x3E2723);
+    }
+    else if (lote.vida <= 20 && vidaAntes > 20) {
+        mostraMsg(`⚠️ SOLO CRÍTICO ${lote.vida.toFixed(0)}%! Pare de plantar trigo!`);
+    }
+}
+window.danificarSolo = danificarSolo;
+
+function regenerarSolo() {
+    campos.forEach(lote => {
+        if (lote.vida < 100 && !lote.plantado) {
+            let regenBase = 10;
+            
+            // Bônus de pousio: regenera dobro se não plantou trigo antes
+            if(lote.ultimoCultivo === null || lote.colheitasSeguidas === 0){
+                regenBase = 20; // 20% a cada ciclo em vez de 10%
+            }
+            
+            lote.vida += regenBase;
+            lote.vida = THREE.MathUtils.clamp(lote.vida, 0, 100);
+            atualizarVisualSolo(lote);
+            
+            // Zera contador quando solo recupera 100%
+            if(lote.vida >= 100){
+                lote.ultimoCultivo = null;
+                lote.colheitasSeguidas = 0;
+            }
+        }
+    });
+    atualizarBarraVidaCampo();
+}
+function iniciarRegeneracaoSolo() {
+    if (intervaloRegen) clearInterval(intervaloRegen);
+    intervaloRegen = setInterval(() => {
+        tempoRegeneracao--;
+        const timerSpan = document.getElementById('timer-regen');
+        if (timerSpan) {
+            let min = Math.floor(tempoRegeneracao / 60);
+            let seg = tempoRegeneracao % 60;
+            timerSpan.innerText = `${min}:${seg.toString().padStart(2, '0')}`;
+        }
+        if (tempoRegeneracao <= 0) {
+            regenerarSolo();
+            tempoRegeneracao = 165;
+        }
+    }, 1000);
+}
+iniciarRegeneracaoSolo();
+
+function atualizarBarraVidaCampo() {
+    const infoDiv = document.getElementById('campo-info');
+    const barra = document.getElementById('barra-vida-campo');
+    const texto = document.getElementById('vida-campo');
+    if (!campoAtualHUD) {
+        infoDiv.style.display = 'none';
+        return;
+    }
+    infoDiv.style.display = 'block';
+    const vida = Math.round(campoAtualHUD.vida);
+    texto.innerText = vida + '%';
+    barra.style.width = vida + '%';
+    if (vida > 70) barra.style.background = '#4CAF50';
+    else if (vida > 40) barra.style.background = '#FFC107';
+    else barra.style.background = '#F44336';
+
+    let dicaSolo = document.getElementById('dica-solo');
+    if(!dicaSolo){
+        dicaSolo = document.createElement('div');
+        dicaSolo.id = 'dica-solo';
+        dicaSolo.style.cssText = 'font-size:10px; margin-top:3px; color:#FFC107;';
+        document.getElementById('campo-info').appendChild(dicaSolo);
+    }
+    if(campoAtualHUD.colheitasSeguidas > 1){
+        dicaSolo.innerText = `⚠️ Monocultura: ${campoAtualHUD.colheitasSeguidas}x trigo`;
+        dicaSolo.style.display = 'block';
+        dicaSolo.style.color = '#FF5252';
+    } else if(campoAtualHUD.vida === 100 &&!campoAtualHUD.plantado){
+        dicaSolo.innerText = `🌱 Pousio: Solo saudável`;
+        dicaSolo.style.display = 'block';
+        dicaSolo.style.color = '#81C784';
+    } else {
+        dicaSolo.style.display = 'none';
+    }
+}
+
+// =====================================
+// NÉVOA + TEMPO
+// =====================================
+function atualizarNevoa() {
+    let horaAtual = Math.floor(tempo * 24);
+    let inicioNevoa = 50;
+    let fimNevoa = 400;
+    let corNevoa = 0xcccccc;
+    if(horaAtual >= 19 || horaAtual < 5) {
+        inicioNevoa = 20;
+        fimNevoa = 300;
+        corNevoa = 0x1a1a2e;
+    }
+    else if(horaAtual >= 5 && horaAtual < 7) {
+        inicioNevoa = 20;
+        fimNevoa = 300;
+        corNevoa = 0xaaaaaa;
+    }
+    else if(horaAtual >= 17 && horaAtual < 19) {
+        inicioNevoa = 20;
+        fimNevoa = 300;
+        corNevoa = 0xaaaaaa;
+    }
+    if(!scene.fog) {
+        scene.fog = new THREE.Fog(corNevoa, inicioNevoa, fimNevoa);
+    } else {
+        scene.fog.color.setHex(corNevoa);
+        scene.fog.near = inicioNevoa;
+        scene.fog.far = fimNevoa;
+    }
+}
+
+ function atualizarCicloDiaNoite() {
+    tempo += velocidadeTempo;
+    if(tempo > 1) tempo = 0;
+
+    const angulo = tempo * Math.PI * 2 - Math.PI/2;
+    const raioSol = 500;
+
+    sun.position.x = Math.sin(angulo) * raioSol;
+    sun.position.y = Math.cos(angulo) * raioSol;
+
+    const intensidadeSol = Math.max(0, Math.cos(angulo));
+    const intensidadeAmbiente = 0.15 + intensidadeSol * 0.45;
+
+    sun.intensity = intensidadeSol * 0.9;
+    ambientLight.intensity = intensidadeAmbiente;
+
+    let corCeu, corNevoa;
+    if(intensidadeSol > 0.3) {
+        corCeu = new THREE.Color(0x87CEEB);
+        corNevoa = new THREE.Color(0xcccccc);
+        sun.color.setHex(0xfff5e1);
+    } else if(intensidadeSol > 0.05) {
+        corCeu = new THREE.Color(0xff8c42);
+        corNevoa = new THREE.Color(0xffb347);
+        sun.color.setHex(0xff7e42);
+    } else {
+        corCeu = new THREE.Color(0x000510);
+        corNevoa = new THREE.Color(0x0a0a1a);
+        sun.color.setHex(0x334466);
+    }
+
+    scene.background = corCeu;
+    if(scene.fog) scene.fog.color = corNevoa;
+}
+
+function spawnarTrigosNoCampo(campo, estagio){
+  if(campo.geoCauleAtual) campo.geoCauleAtual.dispose();
+    if(campo.trigosMesh) scene.remove(campo.trigosMesh);
+    campo.trigos = [];
+    
+    // FORÇA A COR CERTA BASEADO NO ESTÁGIO
+    if(estagio === 0){ // BROTO
+        matCauleSeco.color.set(0x4CAF50); // Verde
+        matEspigaSeco.color.set(0x66BB6A);
+    } else if(estagio === 1){ // MÉDIO
+        matCauleSeco.color.set(0x8BC34A); // Verde-amarelo
+        matEspigaSeco.color.set(0xCDDC39);
+    } else { // MADURO
+        matCauleSeco.color.set(0xF9A825); // Dourado
+        matEspigaSeco.color.set(0xFBC02D);
+    }
+    
+    const pos = campo.mesh.position;
+    const larguraCampo = campo.mesh.geometry.parameters.width;
+    const profundidadeCampo = campo.mesh.geometry.parameters.depth;
+    
+    const borda = 2;
+    const areaPlantavelX = larguraCampo - borda * 2;
+    const areaPlantavelZ = profundidadeCampo - borda * 2;
+    
+    const qtdTrigo = 600; 
+    const colunas = 30;
+    const linhas = 20;
+    
+    // ALTURA BASEADA NO ESTÁGIO
+    let alturaCaule = 0.4; // Broto
+    if(estagio === 1) alturaCaule = 1.0; // Médio
+    if(estagio === 2) alturaCaule = 1.6; // Maduro
+    
+    // Recria a geometria com a altura certa
+    const geoCaule = new THREE.CylinderGeometry(0.04, 0.05, alturaCaule, 3);
+    
+    const cauleMesh = new THREE.InstancedMesh(geoCaule, matCauleSeco, qtdTrigo);
+    const graoMesh = new THREE.InstancedMesh(geoGrao, matEspigaSeco, qtdTrigo * 4);
+    
+    let indiceGrao = 0;
+    
+    for(let i = 0; i < qtdTrigo; i++){
+        const linha = Math.floor(i / colunas);
+        const coluna = i % colunas;
+        
+        const offsetX = ((coluna + 0.5) / colunas - 0.5) * areaPlantavelX + (Math.random() - 0.5) * 0.6;
+        const offsetZ = ((linha + 0.5) / linhas - 0.5) * areaPlantavelZ + (Math.random() - 0.5) * 0.6;
+        
+        const x = pos.x + offsetX;
+        const z = pos.z + offsetZ;
+        
+        dummy.position.set(x, alturaCaule/2, z);
+        dummy.rotation.y = Math.random() * Math.PI * 2;
+        dummy.updateMatrix();
+        cauleMesh.setMatrixAt(i, dummy.matrix);
+        
+        // Só mostra grãos se não for broto
+        if(estagio > 0){
+            for(let j = 0; j < 4; j++){
+                const ang = j * 1.5;
+                dummy.position.set(
+                    x + Math.cos(ang) * 0.05,
+                    alturaCaule - 0.2 + j * 0.05,
+                    z + Math.sin(ang) * 0.05
+                );
+                dummy.updateMatrix();
+                graoMesh.setMatrixAt(indiceGrao, dummy.matrix);
+                indiceGrao++;
+            }
+        }
+        
+        campo.trigos.push({
+            posicao: new THREE.Vector3(x, 0, z),
+            estagio: estagio,
+            indice: i
+        });
+    }
+    
+    cauleMesh.instanceMatrix.needsUpdate = true;
+    graoMesh.instanceMatrix.needsUpdate = true;
+    cauleMesh.castShadow = false;
+    graoMesh.castShadow = false;
+    
+    const grupoTrigo = new THREE.Group();
+    grupoTrigo.add(cauleMesh);
+    if(estagio > 0) grupoTrigo.add(graoMesh); // Broto não tem espiga
+    
+    campo.trigosMesh = grupoTrigo;
+    campo.geoCauleAtual = geoCaule; // Salva pra dar dispose depois
+    scene.add(grupoTrigo);
+}
+function atualizarRelogio() {
+    let horas = Math.floor(tempo * 24);
+    let minutos = Math.floor((tempo * 24 * 60) % 60);
+    horas = horas.toString().padStart(2, '0');
+    minutos = minutos.toString().padStart(2, '0');
+    document.getElementById('relogio').textContent = `${horas}:${minutos}`;
+    atualizarNevoa();
+}
+
+
+// =====================================
+// CHUNKS + SPAWN
+// =====================================
+
+function getChunkKey(x, z){
+    return `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`;
+}
+
+function createChunkContent(cx, cz) {
+    const group = new THREE.Group();
+    const startX = cx * CHUNK_SIZE;
+    const startZ = cz * CHUNK_SIZE;
+    for(let i = 0; i < 6; i++){
+        const x = startX + 10 + Math.random() * (CHUNK_SIZE - 20);
+        const z = startZ + 10 + Math.random() * (CHUNK_SIZE - 20);
+        if(!podeNascerAqui(x, z)) continue;
+        const tree = createTree();
+        tree.position.set(x, 0, z);
+        group.add(tree);
+    }
+    return group;
+}
+
+function loadChunk(cx, cz){
+    const key = `${cx},${cz}`;
+    if(worldObjects.has(key)) return;
+    const chunkGroup = createChunkContent(cx, cz);
+    scene.add(chunkGroup);
+    worldObjects.set(key, chunkGroup);
+}
+
+function unloadChunk(cx, cz){
+    const key = `${cx},${cz}`;
+    if(!worldObjects.has(key)) return;
+    const chunkGroup = worldObjects.get(key);
+    scene.remove(chunkGroup);
+    chunkGroup.traverse(obj => {
+        if(obj.geometry) obj.geometry.dispose();
+        if(obj.material) obj.material.dispose();
+    });
+    worldObjects.delete(key);
+}
+function atualizarBarraSustentabilidade() {
+    // Trava entre 0 e 100
+    sustentabilidade = THREE.MathUtils.clamp(sustentabilidade, 0, 100);
+    
+    // Atualiza o texto
+    document.getElementById('sustent').textContent = Math.round(sustentabilidade);
+    
+    // Atualiza a barra
+    const barra = document.getElementById('barra-sustentabilidade');
+    barra.style.width = sustentabilidade + '%';
+    
+    // Muda cor: verde > amarelo > vermelho
+    if (sustentabilidade > 60) {
+        barra.style.background = '#4CAF50'; // Verde
+    } else if (sustentabilidade > 30) {
+        barra.style.background = '#FFC107'; // Amarelo
+    } else {
+        barra.style.background = '#F44336'; // Vermelho
+    }
+}
+function updateChunks(){
+    if(typeof vehicles === 'undefined' ||!vehicles) return;
+    if(typeof currentVehicle === 'undefined' || currentVehicle === null) return;
+    if(!vehicles[currentVehicle]) return;
+    if(!vehicles[currentVehicle].mesh ||!vehicles[currentVehicle].mesh.position) return;
+    VIEW_DISTANCE = 1;
+    const pos = vehicles[currentVehicle].mesh.position;
+    const playerCX = Math.floor(pos.x / CHUNK_SIZE);
+    const playerCZ = Math.floor(pos.z / CHUNK_SIZE);
+    for(let dx = -VIEW_DISTANCE; dx <= VIEW_DISTANCE; dx++){
+        for(let dz = -VIEW_DISTANCE; dz <= VIEW_DISTANCE; dz++){
+            loadChunk(playerCX + dx, playerCZ + dz);
+        }
+    }
+    worldObjects.forEach((_, key) => {
+        const [cx, cz] = key.split(',').map(Number);
+        if(Math.abs(cx - playerCX) > VIEW_DISTANCE || Math.abs(cz - playerCZ) > VIEW_DISTANCE){
+            unloadChunk(cx, cz);
+        }
+    });
+}
+
+// =====================================
+// ZONAS PROIBIDAS
+// =====================================
+function podeNascerAqui(x, z) {
+    if (x > 105 && x < 135) return false;
+    if (z > -7 && z < 7) return false;
+    if (x > 111 && x < 129 && z > -12 && z < 12) return false;
+    if (Math.sqrt(Math.pow(x + 180, 2) + Math.pow(z - 160, 2)) < 35) return false;
+    if (x > -226 && x < -214 && z > -126 && z < -114) return false;
+    if (x > -199 && x < -181 && z > -126 && z < -114) return false;
+    if (x > -240 && x < -220 && z > -88 && z < -72) return false;
+    if (x > -258 && x < -242 && z > -68 && z < -52) return false;
+    if (x > -245 && x < -200 && z > -38 && z < -16) return false;
+    if (x > -260 && x < -175 && z > -130 && z < -50) return false;
+    if (x > -150 && x < -90 && z > 20 && z < 60) return false;
+    if (x > -70 && x < -10 && z > 20 && z < 60) return false;
+    if (x > -110 && x < -50 && z > 80 && z < 120) return false;
+    if (x > -10 && x < 50 && z > 80 && z < 120) return false;
+    if (x > 10 && x < 70 && z > 20 && z < 60) return false;
+    if (x > 145 && x < 295 && z > -45 && z < -35) return false;
+    if (x > 145 && x < 295 && z > -5 && z < 5) return false;
+    if (x > 145 && x < 295 && z > 35 && z < 45) return false;
+    if (x > 185 && x < 195 && z > -75 && z < 75) return false;
+    if (x > 225 && x < 235 && z > -75 && z < 75) return false;
+    if (x > 265 && x < 275 && z > -75 && z < 75) return false;
+    if (x > 196 && x < 204 && z > -35 && z < -25) return false;
+    if (x > 196 && x < 204 && z > 25 && z < 35) return false;
+    if (x > 236 && x < 244 && z > -35 && z < -25) return false;
+    if (x > 236 && x < 244 && z > 25 && z < 35) return false;
+    if (x > 276 && x < 284 && z > -35 && z < -25) return false;
+    if (x > 276 && x < 284 && z > 25 && z < 35) return false;
+    if (x > 255 && x < 265 && z > 5 && z < 15) return false;
+    if (x > 255 && x < 265 && z > 45 && z < 55) return false;
+    if (x > 225 && x < 275 && z > -112.5 && z < -40) return false;
+    if (x > 140 && x < 260 && z > 75 && z < 175) return false;
+    if (x > -200 && x < 0 && z > -275 && z < -125) return false;
+    if (x > -180 && x < -140 && z > -142.5 && z < -117.5) return false;
+    if (x > -120 && x < -80 && z > -142.5 && z < -117.5) return false;
+    if (x > -60 && x < -20 && z > -142.5 && z < -117.5) return false;
+    return true;
+}
+
+function isAreaProtegida(x, z) {
+    const fabricaBloqueada = (x > 140 && x < 260 && z > 75 && z < 175);
+    if (fabricaBloqueada) return true;
+    return false;
+}
+
+// =====================================
+// ÁRVORES E PEDRAS
+// =====================================
+function createTree() {
+    const tree = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1, 4), new THREE.MeshLambertMaterial({color: 0x8B4513}));
+    trunk.position.y = 2;
+    const leaves = new THREE.Mesh(new THREE.ConeGeometry(3, 8, 6), new THREE.MeshLambertMaterial({color: 0x228B22}));
+    leaves.position.y = 7;
+    tree.add(trunk);
+    tree.add(leaves);
+    const scale = 0.7 + Math.random() * 0.6;
+    tree.scale.set(scale, scale + Math.random() * 0.3, scale);
+    tree.rotation.y = Math.random() * Math.PI * 2;
+    const corVerde = new THREE.Color().setHSL(0.25 + Math.random() * 0.1, 0.7, 0.3 + Math.random() * 0.2);
+    leaves.material.color = corVerde;
+    tree.userData.tipo = 'tree';
+    return tree;
+}
+
+function createRock(x, z){
+    const rockGroup = new THREE.Group();
+    const geo = new THREE.DodecahedronGeometry(Math.random() * 1.5 + 1, 0);
+    const mat = new THREE.MeshLambertMaterial({color: 0x696969});
+    const rock = new THREE.Mesh(geo, mat);
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    rockGroup.add(rock);
+    for(let i = 0; i < 3; i++){
+        const smallGeo = new THREE.DodecahedronGeometry(Math.random() * 0.5 + 0.3, 0);
+        const smallRock = new THREE.Mesh(smallGeo, mat);
+        smallRock.position.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
+        smallRock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+        rockGroup.add(smallRock);
+    }
+    rockGroup.position.set(x, 1, z);
+    rockGroup.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(rockGroup);
+    return rockGroup;
+}
+
+let arvoresCriadas = 0;
+let tentativasArvores = 0;
+while(arvoresCriadas < 250 && tentativasArvores < 1000) {
+    const x = Math.random()*580-290;
+    const z = Math.random()*560-280;
+   if(podeNascerAqui(x, z)) {
+    createTree(x, z);
+    arvoresCriadas++;
+    
+   }
+    tentativasArvores++;
+}
+
+let pedrasCriadas = 0;
+let tentativasPedras = 0;
+while(pedrasCriadas < 20 && tentativasPedras < 500) {
+    const x = Math.random()*500-250;
+    const z = Math.random()*500-250;
+    if(podeNascerAqui(x, z) &&!isAreaProtegida(x, z)) {
+        createRock(x,z);
+        pedrasCriadas++;
+    }
+    tentativasPedras++;
+}
+  // =====================================
+// TRATOR
+// =====================================
+function createTractor() {
+    const tractorGroup = new THREE.Group();
+    const corVerdeJD = 0x367C2B;
+    const corAmareloJD = 0xFFDE00;
+    const corPretoJD = 0x0F0F;
+    const corCinzaJD = 0x2C2C2C;
+    const corpoMatTrator = new THREE.MeshStandardMaterial({ color: corVerdeJD, metalness: 0.6, roughness: 0.2 });
+    const capoMatTrator = new THREE.MeshStandardMaterial({ color: corVerdeJD, metalness: 0.7, roughness: 0.15 });
+    const faixaMatTrator = new THREE.MeshStandardMaterial({ color: corAmareloJD, metalness: 0.3 });
+    const gradeMatTrator = new THREE.MeshStandardMaterial({ color: corPretoJD, metalness: 0.9, roughness: 0.3 });
+    const logoMatTrator = new THREE.MeshStandardMaterial({ color: corAmareloJD, emissive: 0x332200 });
+    const farolMatTrator = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0x666666, emissiveIntensity: 0.8 });
+    const cabineMatTrator = new THREE.MeshStandardMaterial({ color: 0x1A1A1A, transparent: true, opacity: 0.15, metalness: 0.9, roughness: 0.05 });
+    const tetoMatTrator = new THREE.MeshStandardMaterial({ color: corVerdeJD, metalness: 0.6 });
+    const ledBarMatTrator = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0xAAAAAA, emissiveIntensity: 1 });
+    const gyroMatTrator = new THREE.MeshStandardMaterial({ color: corAmareloJD, emissive: 0x664400 });
+    const escapeMatTrator = new THREE.MeshStandardMaterial({ color: corCinzaJD, metalness: 0.95 });
+    const espelhoMatTrator = new THREE.MeshStandardMaterial({ color: corPretoJD });
+    const hitchMatTrator = new THREE.MeshStandardMaterial({ color: corVerdeJD, metalness: 0.5 });
+    const rodaMatTrator = new THREE.MeshStandardMaterial({ color: corPretoJD });
+    const aroMatTrator = new THREE.MeshStandardMaterial({ color: corAmareloJD, metalness: 0.8, roughness: 0.2 });
+
+    const corpoGeo = new THREE.BoxGeometry(3.5, 1.6, 5.8);
+    const corpo = new THREE.Mesh(corpoGeo, corpoMatTrator);
+    corpo.position.y = 1.3;
+    tractorGroup.add(corpo);
+
+    const capoGeo = new THREE.BoxGeometry(3.3, 1.3, 3);
+    const capo = new THREE.Mesh(capoGeo, capoMatTrator);
+    capo.position.set(0, 1.8, 2);
+    capo.rotation.x = -0.4;
+    tractorGroup.add(capo);
+
+    const faixaGeo = new THREE.BoxGeometry(3.4, 0.15, 3.1);
+    const faixa = new THREE.Mesh(faixaGeo, faixaMatTrator);
+    faixa.position.set(0, 2.1, 2);
+    faixa.rotation.x = -0.4;
+    tractorGroup.add(faixa);
+
+    const gradeGeo = new THREE.BoxGeometry(3, 1.4, 0.4);
+    const grade = new THREE.Mesh(gradeGeo, gradeMatTrator);
+    grade.position.set(0, 1.2, 3.5);
+    tractorGroup.add(grade);
+
+    const logoGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 6);
+    const logo = new THREE.Mesh(logoGeo, logoMatTrator);
+    logo.rotation.x = Math.PI / 2;
+    logo.position.set(0, 1.4, 3.71);
+    tractorGroup.add(logo);
+
+    const farolGeo = new THREE.BoxGeometry(0.5, 0.3, 0.1);
+    for(let x of [-1, 1]) {
+        const farol = new THREE.Mesh(farolGeo, farolMatTrator);
+        farol.position.set(x, 1.6, 3.55);
+        farol.rotation.y = x * 0.2;
+        tractorGroup.add(farol);
+    }
+
+    const cabineGeo = new THREE.BoxGeometry(2.8, 2.8, 3);
+    const cabine = new THREE.Mesh(cabineGeo, cabineMatTrator);
+    cabine.position.set(0, 3.7, -0.5);
+    tractorGroup.add(cabine);
+
+    const tetoGeo = new THREE.BoxGeometry(2.9, 0.3, 3.1);
+    const teto = new THREE.Mesh(tetoGeo, tetoMatTrator);
+    teto.position.set(0, 5.2, -0.5);
+    tractorGroup.add(teto);
+
+    const ledBarGeo = new THREE.BoxGeometry(2.5, 0.15, 0.2);
+    const ledBar = new THREE.Mesh(ledBarGeo, ledBarMatTrator);
+    ledBar.position.set(0, 5.35, 0.8);
+    tractorGroup.add(ledBar);
+
+    const gyroGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.2, 8);
+    for(let x of [-0.8, 0.8]) {
+        const gyro = new THREE.Mesh(gyroGeo, gyroMatTrator);
+        gyro.position.set(x, 5.45, -0.5);
+        tractorGroup.add(gyro);
+    }
+
+    const escapeGeo = new THREE.CylinderGeometry(0.15, 0.15, 2.5, 8);
+    const escape = new THREE.Mesh(escapeGeo, escapeMatTrator);
+    escape.position.set(-1.9, 3.5, -1);
+    tractorGroup.add(escape);
+
+    const espelhoHaste = new THREE.CylinderGeometry(0.05, 0.05, 1, 6);
+    const espelhoVidro = new THREE.BoxGeometry(0.4, 0.6, 0.1);
+    for(let lado of [-1, 1]) {
+        const haste = new THREE.Mesh(espelhoHaste, espelhoMatTrator);
+        haste.rotation.z = lado * Math.PI / 2;
+        haste.position.set(1.7 * lado, 4, -0.5);
+        tractorGroup.add(haste);
+        const vidro = new THREE.Mesh(espelhoVidro, espelhoMatTrator);
+        vidro.position.set(2.2 * lado, 4, -0.5);
+        tractorGroup.add(vidro);
+    }
+
+    const hitchGeo = new THREE.BoxGeometry(2, 1.2, 0.8);
+    const hitch = new THREE.Mesh(hitchGeo, hitchMatTrator);
+    hitch.position.set(0, 0.8, 3.8);
+    tractorGroup.add(hitch);
+
+    const rodaTrasGeo = new THREE.CylinderGeometry(1.6, 1.6, 1.1, 24);
+    const aroGeo = new THREE.CylinderGeometry(1.1, 1.1, 1.15, 24);
+    for(let offset of [0, 1.3]) {
+        const roda = new THREE.Mesh(rodaTrasGeo, rodaMatTrator);
+        const aro = new THREE.Mesh(aroGeo, aroMatTrator);
+        roda.rotation.z = Math.PI / 2;
+        aro.rotation.z = Math.PI / 2;
+        roda.position.set(-2.2 - offset, 1.6, -1.5);
+        aro.position.set(-2.2 - offset, 1.6, -1.5);
+        tractorGroup.add(roda);
+        tractorGroup.add(aro);
+    }
+    for(let offset of [0, 1.3]) {
+        const roda = new THREE.Mesh(rodaTrasGeo, rodaMatTrator);
+        const aro = new THREE.Mesh(aroGeo, aroMatTrator);
+        roda.rotation.z = Math.PI / 2;
+        aro.rotation.z = Math.PI / 2;
+        roda.position.set(2.2 + offset, 1.6, -1.5);
+        aro.position.set(2.2 + offset, 1.6, -1.5);
+        tractorGroup.add(roda);
+        tractorGroup.add(aro);
+    }
+
+    const rodaFrenteGeo = new THREE.CylinderGeometry(1.2, 1.2, 1, 24);
+    const aroFrenteGeo = new THREE.CylinderGeometry(0.8, 0.8, 1.05, 24);
+    const pivoRodaFE = new THREE.Group();
+    const rodaFE = new THREE.Group();
+    const pneuFE = new THREE.Mesh(rodaFrenteGeo, rodaMatTrator);
+    const aroFE = new THREE.Mesh(aroFrenteGeo, aroMatTrator);
+    pneuFE.rotation.z = Math.PI / 2;
+    aroFE.rotation.z = Math.PI / 2;
+    rodaFE.add(pneuFE);
+    rodaFE.add(aroFE);
+    pivoRodaFE.add(rodaFE);
+    pivoRodaFE.position.set(-1.9, 1.2, 2.3);
+    tractorGroup.add(pivoRodaFE);
+
+    const pivoRodaFD = new THREE.Group();
+    const rodaFD = new THREE.Group();
+    const pneuFD = new THREE.Mesh(rodaFrenteGeo, rodaMatTrator);
+    const aroFD = new THREE.Mesh(aroFrenteGeo, aroMatTrator);
+    pneuFD.rotation.z = Math.PI / 2;
+    aroFD.rotation.z = Math.PI / 2;
+    rodaFD.add(pneuFD);
+    rodaFD.add(aroFD);
+    pivoRodaFD.add(rodaFD);
+    pivoRodaFD.position.set(1.9, 1.2, 2.3);
+    tractorGroup.add(pivoRodaFD);
+
+    tractorGroup.boundingBox = new THREE.Box3();
+    return { group: tractorGroup, rodaFD, rodaFE, pivoRodaFD, pivoRodaFE };
+}
+
+const { group: tractor, rodaFD, rodaFE, pivoRodaFD, pivoRodaFE } = createTractor();
+scene.add(tractor);
+tractor.scale.set(0.8, 0.8, 0.8);
+tractor.position.set(-163, 0, -115);
+
+// =====================================
+// ARADO + PLANTADEIRA
+// =====================================
+let arado = new THREE.Group();
+const barraEngateArado = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 3.5),new THREE.MeshLambertMaterial({color:0xDD0000}));
+barraEngateArado.position.set(0, 1.1, 0);
+barraEngateArado.castShadow = true;
+arado.add(barraEngateArado);
+const quadroPrincipal = new THREE.Group();
+const longarinaGeo = new THREE.BoxGeometry(0.25, 0.25, 8);
+const estruturaMat = new THREE.MeshLambertMaterial({color:0xCC0000});
+const longarina1 = new THREE.Mesh(longarinaGeo, estruturaMat);
+longarina1.position.set(-4.5, 0.8, 4);
+quadroPrincipal.add(longarina1);
+const longarina2 = longarina1.clone();
+longarina2.position.x = 4.5;
+quadroPrincipal.add(longarina2);
+const travessaGeo = new THREE.BoxGeometry(9.5, 0.25, 0.25);
+for(let i = 0; i < 4; i++) {
+    const travessa = new THREE.Mesh(travessaGeo, estruturaMat);
+    travessa.position.set(0, 0.8, 1 + i * 2.3);
+    quadroPrincipal.add(travessa);
+}
+const diagonal1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 10),estruturaMat);
+diagonal1.rotation.y = 0.5;
+diagonal1.position.set(0, 0.8, 4);
+quadroPrincipal.add(diagonal1);
+const diagonal2 = diagonal1.clone();
+diagonal2.rotation.y = -0.5;
+quadroPrincipal.add(diagonal2);
+arado.add(quadroPrincipal);
+for(let fileira = 0; fileira < 3; fileira++) {
+    for(let i = 0; i < 18; i++) {
+        const posX = -4.25 + i * 0.5;
+        const posZ = 1.5 + fileira * 2.3;
+        const haste = new THREE.Group();
+        const bracoHaste = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.8),new THREE.MeshLambertMaterial({color:0xAA0000}));
+        bracoHaste.rotation.x = 0.4;
+        bracoHaste.position.set(0, 0.4, 0.2);
+        haste.add(bracoHaste);
+        const ponteira = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6),new THREE.MeshLambertMaterial({color:0x444444}));
+        ponteira.rotation.x = Math.PI;
+        ponteira.position.set(0, 0,0.4);
+        haste.add(ponteira);
+        haste.position.set(posX, 0.3, posZ);
+        arado.add(haste);
+    }
+}
+const roloGeo = new THREE.CylinderGeometry(0.4, 0.4, 9, 16);
+const roloMat = new THREE.MeshLambertMaterial({color:0x333333});
+const roloDestorroador = new THREE.Mesh(roloGeo, roloMat);
+roloDestorroador.rotation.z = Math.PI/2;
+roloDestorroador.position.set(0, 0.4, 7.8);
+roloDestorroador.castShadow = true;
+arado.add(roloDestorroador);
+for(let i = 0; i < 30; i++) {
+    const dente = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.05),new THREE.MeshLambertMaterial({color:0x555555}));
+    const angulo = (i / 30) * Math.PI * 2;
+    dente.position.set(-4.5 + (i % 15) * 0.6,0.4 + Math.sin(angulo) * 0.4,7.8 + Math.cos(angulo) * 0.4);
+    arado.add(dente);
+}
+const rodaApoioGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.35, 16);
+const rodaApoioMat = new THREE.MeshLambertMaterial({color:0x111111});
+const posRodas = [[-4, 0.45, 2], [4, 0.45, 2],[-2, 0.45, 4.5], [2, 0.45, 4.5],[-4, 0.45, 7], [4, 0.45, 7]];
+posRodas.forEach(pos => {
+    const roda = new THREE.Mesh(rodaApoioGeo, rodaApoioMat);
+    roda.rotation.z = Math.PI/2;
+    roda.position.set(pos[0], pos[1], pos[2]);
+    roda.castShadow = true;
+    arado.add(roda);
+});
+arado.position.set(-150,0,-120);
+arado.visible = true;
+scene.add(arado);
+
+const plantadeira = new THREE.Group();
+const barraEngateP = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 4),new THREE.MeshLambertMaterial({color:0x2E7D32}));
+barraEngateP.position.set(0, 1, 0);
+plantadeira.add(barraEngateP);
+const barraPrincipal = new THREE.Mesh(new THREE.BoxGeometry(12, 0.3, 0.6),new THREE.MeshLambertMaterial({color:0x1B5E20}));
+barraPrincipal.position.set(0, 0.6, 2.5);
+barraPrincipal.castShadow = true;
+plantadeira.add(barraPrincipal);
+const tanqueGeo = new THREE.BoxGeometry(1.2, 1, 1.5);
+const tanqueMat = new THREE.MeshLambertMaterial({color:0xFFEB3B});
+const tanque1 = new THREE.Mesh(tanqueGeo, tanqueMat);
+tanque1.position.set(-1.5, 1.3, 1.5);
+tanque1.castShadow = true;
+plantadeira.add(tanque1);
+const tanque2 = tanque1.clone();
+tanque2.position.x = 1.5;
+plantadeira.add(tanque2);
+const tampaTanqueGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.15, 16);
+const tampaTanqueMat = new THREE.MeshLambertMaterial({color:0xFFC107});
+const tampa1 = new THREE.Mesh(tampaTanqueGeo, tampaTanqueMat);
+tampa1.position.set(-1.5, 1.85, 1.5);
+plantadeira.add(tampa1);
+const tampa2 = tampa1.clone();
+tampa2.position.x = 1.5;
+plantadeira.add(tampa2);
+const linhasPlantio = 24;
+for(let i = 0; i < linhasPlantio; i++) {
+    const posX = -5.75 + i * 0.5;
+    const discoCorte = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.06, 16),new THREE.MeshLambertMaterial({color:0x444444}));
+    discoCorte.rotation.z = Math.PI/2;
+    discoCorte.position.set(posX, 0.15, 3.2);
+    plantadeira.add(discoCorte);
+    const braco = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.4, 0.08),new THREE.MeshLambertMaterial({color:0x2E7D32}));
+    braco.position.set(posX, 0.4, 2.8);
+    plantadeira.add(braco);
+    const rodaCompact = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.12, 12),new THREE.MeshLambertMaterial({color:0x333333}));
+    rodaCompact.rotation.z = Math.PI/2;
+    rodaCompact.position.set(posX, 0.18, 2.5);
+    plantadeira.add(rodaCompact);
+}
+const rodaGrandeGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 16);
+const rodaGrandeMat = new THREE.MeshLambertMaterial({color:0x111111});
+const rodaGrande1 = new THREE.Mesh(rodaGrandeGeo, rodaGrandeMat);
+rodaGrande1.rotation.z = Math.PI/2;
+rodaGrande1.position.set(-5.8, 0.5, 1);
+rodaGrande1.castShadow = true;
+plantadeira.add(rodaGrande1);
+const rodaGrande2 = rodaGrande1.clone();
+rodaGrande2.position.x = 5.8;
+plantadeira.add(rodaGrande2);
+plantadeira.position.set(-173,0,-115);
+plantadeira.visible = true;
+scene.add(plantadeira);
+
+// =====================================
+// MELKSTAD - FAZENDA
+// =====================================
+const melkstad = new THREE.Group();
+melkstad.position.set(-100, 0, -200);
+const patioTerra = new THREE.Mesh(new THREE.BoxGeometry(200, 0.2, 200),new THREE.MeshStandardMaterial({color: 0x8B7355, roughness: 1}));
+patioTerra.position.y = 0.1;
+patioTerra.position.set(0,0,-18);
+patioTerra.receiveShadow = true;
+melkstad.add(patioTerra);
+for(let i = 0; i < 12; i++){
+    const largura = THREE.MathUtils.randFloat(2, 4);
+    const comprimento = THREE.MathUtils.randFloat(30, 80);
+    const caminho = new THREE.Mesh(new THREE.BoxGeometry(largura, 0.05, comprimento),new THREE.MeshStandardMaterial({color: 0x6D4C41, roughness: 1}));
+    caminho.position.set(THREE.MathUtils.randFloat(-90, 90), 0.21, THREE.MathUtils.randFloat(-57, 57));
+    caminho.rotation.y = THREE.MathUtils.randFloat(0, Math.PI * 2);
+    caminho.receiveShadow = true;
+    melkstad.add(caminho);
+}
+const caminhoPrincipal1 = new THREE.Mesh(new THREE.BoxGeometry(8, 0.06, 150),new THREE.MeshStandardMaterial({color: 0x5D4037, roughness: 1}));
+caminhoPrincipal1.position.set(0, 0.21, 0);
+caminhoPrincipal1.receiveShadow = true;
+melkstad.add(caminhoPrincipal1);
+const caminhoPrincipal2 = new THREE.Mesh(new THREE.BoxGeometry(200, 0.06, 6),new THREE.MeshStandardMaterial({color: 0x5D4037, roughness: 1}));
+caminhoPrincipal2.position.set(0, 0.21, 50);
+caminhoPrincipal2.receiveShadow = true;
+melkstad.add(caminhoPrincipal2);
+
+function criarGalpaoMelkstad(posX, posY, posZ, comprimento) {
+    const galpao = new THREE.Group();
+    const metadeComp = comprimento / 2;
+    const largura = 50;
+    const altura = 12;
+    const telhadoGeo = new THREE.BufferGeometry();
+    const vertices = new Float32Array([
+        -largura/2, 0, -metadeComp, largura/2, 0, -metadeComp, 0, 8, -metadeComp,
+        -largura/2, 0, metadeComp, largura/2, 0, metadeComp, 0, 8, metadeComp,
+    ]);
+    const indices = [0,1,2, 3,4,5, 0,3,4, 0,4,1, 0,2,5, 0,5,3, 1,4,5, 1,5,2];
+    telhadoGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    telhadoGeo.setIndex(indices);
+    telhadoGeo.computeVertexNormals();
+    const telhado = new THREE.Mesh(telhadoGeo,new THREE.MeshStandardMaterial({color: 0x8D6E63, metalness: 0.7, side: THREE.DoubleSide}));
+    telhado.position.y = altura;
+    telhado.castShadow = true;
+    galpao.add(telhado);
+    const paredeFundo = new THREE.Mesh(new THREE.BoxGeometry(largura, altura, 0.5),new THREE.MeshStandardMaterial({color: 0xD7CCC8}));
+    paredeFundo.position.set(0, altura/2, -metadeComp);
+    paredeFundo.castShadow = true;
+    galpao.add(paredeFundo);
+    const paredeLateral = new THREE.Mesh(new THREE.BoxGeometry(0.5, altura, comprimento),new THREE.MeshStandardMaterial({color: 0xD7CCC8}));
+    paredeLateral.position.set(largura/2, altura/2, 0);
+    galpao.add(paredeLateral);
+    for(let z = -metadeComp + 15; z <= metadeComp - 15; z += 20){
+        for(let y of [4, 8]){
+            const ventilador = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.3, 16),new THREE.MeshStandardMaterial({color: 0xB0BEC5, metalness: 0.8}));
+            ventilador.rotation.z = Math.PI/2;
+            ventilador.position.set(largura/2 + 0.3, y, z);
+            galpao.add(ventilador);
+        }
+    }
+    const paredeFrente = new THREE.Mesh(new THREE.BoxGeometry(largura - 8, altura, 0.5),new THREE.MeshStandardMaterial({color: 0xD7CCC8}));
+    paredeFrente.position.set(-4, altura/2, metadeComp);
+    galpao.add(paredeFrente);
+    const paredeFrente2 = new THREE.Mesh(new THREE.BoxGeometry(4, altura, 0.5),new THREE.MeshStandardMaterial({color: 0xD7CCC8}));
+    paredeFrente2.position.set(largura/2 - 2, altura/2, metadeComp);
+    galpao.add(paredeFrente2);
+    const larguraPortao = 8;
+    const alturaPortao = 6;
+    const portao = new THREE.Mesh(new THREE.BoxGeometry(larguraPortao, alturaPortao, 0.6),new THREE.MeshStandardMaterial({color: 0x5D4037, metalness: 0.2}));
+    portao.position.set(largura/2 - 6, alturaPortao/2, metadeComp + 0.05);
+    portao.userData.aberto = false;
+    portao.castShadow = true;
+    galpao.add(portao);
+    galpao.userData.portao = portao;
+    for(let x of [-largura/2 + 0.5, largura/2 - 0.5]){
+        const pilar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, altura, 8),new THREE.MeshStandardMaterial({color: 0xECEFF1}));
+        pilar.position.set(x, altura/2, metadeComp);
+        pilar.castShadow = true;
+        galpao.add(pilar);
+    }
+    const cerca = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, comprimento - 4),new THREE.MeshStandardMaterial({color: 0x757575, metalness: 0.6}));
+    cerca.position.set(-largura/2 + 2, 0.6, 0);
+    galpao.add(cerca);
+    const piso = new THREE.Mesh(new THREE.BoxGeometry(largura - 4, 0.2, comprimento - 2),new THREE.MeshStandardMaterial({color: 0x5D4037, roughness: 1}));
+    piso.position.y = 0.1;
+    piso.receiveShadow = true;
+    galpao.add(piso);
+    const corredor = new THREE.Mesh(new THREE.BoxGeometry(4, 0.1, comprimento),new THREE.MeshStandardMaterial({color: 0x9E9E9E}));
+    corredor.position.set(-largura/2 + 4, 0.21, 0);
+    galpao.add(corredor);
+    galpao.position.set(posX, posY, posZ);
+    galpao.userData = {
+        comprimento: comprimento,
+        largura: largura,
+        areaLivre: { minX: -largura/2 + 5, maxX: largura/2 - 2, minZ: -metadeComp + 2, maxZ: metadeComp - 2 },
+        portao: portao
+    };
+    galpao.name = "galpaoVazio";
+    return galpao;
+}
+
+const galpao1 = criarGalpaoMelkstad(-60, 0, -40, 150);
+const galpao2 = criarGalpaoMelkstad(0, 0, -15, 100);
+const galpao3 = criarGalpaoMelkstad(60, 0, -5, 80);
+melkstad.add(galpao1);
+melkstad.add(galpao2);
+melkstad.add(galpao3);
+galpoesVacas.push(galpao1, galpao2, galpao3);
+
+melkstad.silosSilagem = [];
+const posicoesSilos = [{x: 60, z: 80}, {x: 0, z: 80}, {x: -60, z: 80}];
+for(let i = 0; i < 3; i++){
+    const grupoSilagem = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(40, 0.05, 25),new THREE.MeshStandardMaterial({color: 0x7F8C8D, roughness: 0.9}));
+    base.position.y = 0.1;
+    base.receiveShadow = true;
+    grupoSilagem.add(base);
+    const paredeEsq = new THREE.Mesh(new THREE.BoxGeometry(1, 4, 25),new THREE.MeshStandardMaterial({color: 0x95A5A6}));
+    paredeEsq.position.set(-19.5, 2, 0);
+    paredeEsq.castShadow = true;
+    grupoSilagem.add(paredeEsq);
+    const paredeDir = new THREE.Mesh(new THREE.BoxGeometry(1, 4, 25),new THREE.MeshStandardMaterial({color: 0x95A5A6}));
+    paredeDir.position.set(19.5, 2, 0);
+    paredeDir.castShadow = true;
+    grupoSilagem.add(paredeDir);
+    const paredeFundo = new THREE.Mesh(new THREE.BoxGeometry(40, 4, 1),new THREE.MeshStandardMaterial({color: 0x95A5A6}));
+    paredeFundo.position.set(0, 2, -12);
+    paredeFundo.castShadow = true;
+    grupoSilagem.add(paredeFundo);
+    const silagem = new THREE.Mesh(new THREE.BoxGeometry(38, 0.1, 23),new THREE.MeshStandardMaterial({color: 0x2E7D32, roughness: 1}));
+    silagem.position.y = 0.5;
+    silagem.name = "silagem";
+    silagem.visible = false;
+    grupoSilagem.add(silagem);
+    const lona = new THREE.Mesh(new THREE.BoxGeometry(40, 0.1, 25),new THREE.MeshStandardMaterial({color: 0xF5F5, side: THREE.DoubleSide}));
+    lona.name = "lona";
+    lona.visible = false;
+    grupoSilagem.add(lona);
+    grupoSilagem.position.set(posicoesSilos[i].x, 0, posicoesSilos[i].z);
+    grupoSilagem.userData = { kgSilagem: 0, capacidade: 50000 };
+    grupoSilagem.name = `siloSilagem_${i}`;
+    melkstad.add(grupoSilagem);
+    melkstad.silosSilagem.push(grupoSilagem);
+}
+
+const siloMilho = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 15, 16),new THREE.MeshStandardMaterial({color: 0xF39C12, metalness: 0.7}));
+siloMilho.position.set(85, 7.5, -30);
+siloMilho.castShadow = true;
+siloMilho.name = "siloMilho";
+melkstad.add(siloMilho);
+
+const tanqueLeite = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 6, 16),new THREE.MeshStandardMaterial({color: 0xE0E0E0, metalness: 0.9}));
+tanqueLeite.position.set(0, 3, -50);
+tanqueLeite.castShadow = true;
+tanqueLeite.name = "tanqueLeite";
+melkstad.add(tanqueLeite);
+
+scene.add(melkstad);
+
+window.melkstadData = {
+    milhoArmazenado: 0,
+    silagemArmazenada: 0,
+    capacidadeMilho: 80000,
+    vacas: 0,
+    litrosPorVaca: 0.5,
+    leiteArmazenado: 0,
+    capacidadeTanque: 10000,
+    posicao: melkstad.position,
+    galpoesIniciados: false
+};
+
+window.fazerSilagem = function(kgMilho){
+    if(melkstadData.milhoArmazenado < kgMilho) return 0;
+    let kgRestante = kgMilho;
+    let kgTotalUsado = 0;
+    for(let silo of melkstad.silosSilagem){
+        if(kgRestante <= 0) break;
+        const espacoLivre = silo.userData.capacidade - silo.userData.kgSilagem;
+        if(espacoLivre <= 0) continue;
+        const kgUsar = Math.min(kgRestante, espacoLivre);
+        silo.userData.kgSilagem += kgUsar;
+        kgRestante -= kgUsar;
+        kgTotalUsado += kgUsar;
+        const altura = (silo.userData.kgSilagem / silo.userData.capacidade) * 4;
+        const meshSilagem = silo.getObjectByName("silagem");
+        const meshLona = silo.getObjectByName("lona");
+        meshSilagem.scale.y = altura;
+        meshSilagem.position.y = 0.5 + altura/2;
+        meshSilagem.visible = true;
+        meshLona.position.y = 0.5 + altura + 0.1;
+        meshLona.visible = true;
+    }
+    melkstadData.milhoArmazenado -= kgTotalUsado;
+    melkstadData.silagemArmazenada += kgTotalUsado;
+    return kgTotalUsado;
+}
+
+// LAGO
+const lake = new THREE.Mesh(new THREE.CircleGeometry(30,32),new THREE.MeshLambertMaterial({color:0x3498db}));
+lake.rotation.x = -Math.PI/2;
+lake.position.set(-180,0.02,160);
+scene.add(lake);
+  // =====================================
+// CELEIRO + CERCA DO PASTO
+// =====================================
+const barn = new THREE.Group();
+const barnBase = new THREE.Mesh(new THREE.BoxGeometry(20,10,16),new THREE.MeshLambertMaterial({color:0xb22222}));
+barnBase.position.y = 5;
+const barnRoof = new THREE.Mesh(new THREE.ConeGeometry(15,8,4),new THREE.MeshLambertMaterial({color:0x444444}));
+barnRoof.position.y = 14;
+barnRoof.rotation.y = Math.PI/4;
+barn.add(barnBase);
+barn.add(barnRoof);
+barn.position.set(-230,0,-80);
+scene.add(barn);
+
+const LIMITE_PASTO = { minX: -245, maxX: -200, minZ: -38, maxZ: -16 };
+function criarCercaPasto() {
+  const material = new THREE.MeshLambertMaterial({color: 0x8B4513});
+  const grossura = 0.5;
+  const altura = 1.8;
+  const cercaN = new THREE.Mesh(new THREE.BoxGeometry(LIMITE_PASTO.maxX - LIMITE_PASTO.minX, altura, grossura), material);
+  cercaN.position.set((LIMITE_PASTO.minX + LIMITE_PASTO.maxX)/2, altura/2, LIMITE_PASTO.maxZ);
+  cercaN.boundingBox = new THREE.Box3().setFromObject(cercaN);
+  scene.add(cercaN);
+  obstaculos.push(cercaN);
+  const cercaS = cercaN.clone();
+  cercaS.position.z = LIMITE_PASTO.minZ;
+  cercaS.boundingBox = new THREE.Box3().setFromObject(cercaS);
+  scene.add(cercaS);
+  obstaculos.push(cercaS);
+  const cercaL = new THREE.Mesh(new THREE.BoxGeometry(grossura, altura, LIMITE_PASTO.maxZ - LIMITE_PASTO.minZ), material);
+  cercaL.position.set(LIMITE_PASTO.maxX, altura/2, (LIMITE_PASTO.minZ + LIMITE_PASTO.maxZ)/2);
+  cercaL.boundingBox = new THREE.Box3().setFromObject(cercaL);
+  scene.add(cercaL);
+  obstaculos.push(cercaL);
+  const cercaO = cercaL.clone();
+  cercaO.position.x = LIMITE_PASTO.minX;
+  cercaO.boundingBox = new THREE.Box3().setFromObject(cercaO);
+  scene.add(cercaO);
+  obstaculos.push(cercaO);
+}
+criarCercaPasto();
+// =====================================
+// CAMPOS DE PLANTIO
+// =====================================
+const field1 = new THREE.Mesh(new THREE.BoxGeometry(60,0.2,40),new THREE.MeshLambertMaterial({color:0x8B5A2B}));
+  campos.push({mesh: field1, vida: 100, plantado: false, pronto: false, arado: false, arando: false, progressoArado: 0, fase: 0, comprado: true, preco: 0});
+field1.position.set(-120,0.1,40);
+scene.add(field1);
+const field2 = new THREE.Mesh(new THREE.BoxGeometry(60,0.2,40),new THREE.MeshLambertMaterial({color:0xE0E0E0}));
+  campos.push({mesh: field2, vida: 100, plantado: false, pronto: false, arado: false, arando: false, progressoArado: 0, fase: 0, comprado: false, preco: 500});
+field2.position.set(-40,0.1,40);
+scene.add(field2);
+const field3 = new THREE.Mesh(new THREE.BoxGeometry(60,0.2,40),new THREE.MeshLambertMaterial({color:0xE0E0E0}));
+   campos.push({mesh: field3, vida: 100, plantado: false, pronto: false, arado: false, arando: false, progressoArado: 0, fase: 0, comprado: false, preco: 800});
+field3.position.set(-80,0.1,100);
+scene.add(field3);
+// =====================================
+// MONTANHAS
+// =====================================
+function createMountain(x, z, size, height){
+    const alturaFinal = height * 2.5;
+    const mountain = new THREE.Mesh(
+        new THREE.ConeGeometry(size, alturaFinal, 4),
+        new THREE.MeshLambertMaterial({color: 0x7f8c8d})
+    );
+    mountain.position.set(x, alturaFinal/2, z);
+    mountain.rotation.y = Math.random() * Math.PI;
+    mountain.castShadow = true;
+    scene.add(mountain);
+    if(alturaFinal > 60){
+        const neve = new THREE.Mesh(
+            new THREE.ConeGeometry(size * 0.4, alturaFinal * 0.15, 4),
+            new THREE.MeshLambertMaterial({color: 0xECF0F1})
+        );
+        neve.position.y = alturaFinal/2 - alturaFinal * 0.1;
+        mountain.add(neve);
+    }
+    mountain.name = "montanha";
+    return mountain;
+}
+
+function criarCordilheira(limite = 300, espacamento = 50) {
+    for(let i = -limite; i <= limite; i += espacamento){
+        createMountain(i, -limite, 40 + Math.random()*20, 60 + Math.random()*40);
+    }
+    for(let i = -limite; i <= limite; i += espacamento){
+        createMountain(i, limite, 40 + Math.random()*20, 60 + Math.random()*40);
+    }
+    for(let i = -limite; i <= limite; i += espacamento){
+        createMountain(-limite, i, 40 + Math.random()*20, 60 + Math.random()*40);
+    }
+    for(let i = -limite; i <= limite; i += espacamento){
+        createMountain(limite, i, 40 + Math.random()*20, 60 + Math.random()*40);
+    }
+}
+criarCordilheira(400, 50);
+
+// =====================================
+// ESTRADA
+// =====================================
+const road = new THREE.Mesh(
+    new THREE.BoxGeometry(500,0.2,14),
+    new THREE.MeshLambertMaterial({color:0x555555})
+);
+road.position.set(0,0.05,0);
+scene.add(road);
+
+// =====================================
+// FÁBRICA
+// =====================================
+const fabrica = new THREE.Group();
+const patio = new THREE.Mesh(new THREE.BoxGeometry(120,0.2,100),new THREE.MeshLambertMaterial({color:0x555555}));
+patio.position.set(0, 0.1, 0);
+patio.receiveShadow = true;
+fabrica.add(patio);
+
+const posicoesGalpoes = [[-40,0,-30], [-40,0,-10], [-40,0,10], [-40,0,30], [10,0,-20], [10,0,20]];
+posicoesGalpoes.forEach((pos, i) => {
+    const galpao = new THREE.Group();
+    const corpo = new THREE.Mesh(new THREE.BoxGeometry(25,8,15),new THREE.MeshLambertMaterial({color:0x2E5A9C}));
+    corpo.position.y = 4;
+    corpo.castShadow = true;
+    galpao.add(corpo);
+    const telhado = new THREE.Mesh(new THREE.BoxGeometry(26,1,16),new THREE.MeshLambertMaterial({color:0x4682B4}));
+    telhado.position.y = 8.5;
+    galpao.add(telhado);
+    const porta = new THREE.Mesh(new THREE.BoxGeometry(4,5,0.2),new THREE.MeshLambertMaterial({color:0x333333}));
+    porta.position.set(0, 2.5, 7.6);
+    galpao.add(porta);
+    galpao.position.set(...pos);
+    fabrica.add(galpao);
+});
+
+for(let i = 0; i < 4; i++){
+    const silo = new THREE.Group();
+    const corpoSilo = new THREE.Mesh(new THREE.CylinderGeometry(6,6,30,16),new THREE.MeshLambertMaterial({color:0xF5F5}));
+    corpoSilo.position.y = 15;
+    corpoSilo.castShadow = true;
+    silo.add(corpoSilo);
+    const topo = new THREE.Mesh(new THREE.ConeGeometry(6.5,4,16),new THREE.MeshLambertMaterial({color:0xDDDDDD}));
+    topo.position.y = 32;
+    silo.add(topo);
+    silo.position.set(40, 0, -30 + i*20);
+    fabrica.add(silo);
+}
+
+const predioMural = new THREE.Mesh(new THREE.BoxGeometry(20,25,30),new THREE.MeshLambertMaterial({color:0x1E3A8A}));
+predioMural.position.set(40, 12.5, 0);
+predioMural.castShadow = true;
+fabrica.add(predioMural);
+
+const canvas = document.createElement('canvas');
+canvas.width = 256; canvas.height = 512;
+const ctx = canvas.getContext('2d');
+ctx.fillStyle = '#3B82F6'; ctx.fillRect(0,0,256,512);
+ctx.fillStyle = '#FBBF24'; ctx.fillRect(50,100,156,50);
+ctx.fillStyle = '#10B981'; ctx.fillRect(30,200,196,80);
+ctx.fillStyle = '#EF4444'; ctx.fillRect(70,320,116,60);
+const muralTex = new THREE.CanvasTexture(canvas);
+const mural = new THREE.Mesh(new THREE.PlaneGeometry(28,23),new THREE.MeshBasicMaterial({map: muralTex}));
+mural.position.set(50.1, 12.5, 0);
+mural.rotation.y = -Math.PI/2;
+fabrica.add(mural);
+
+const guarita = new THREE.Mesh(new THREE.BoxGeometry(4,3,4),new THREE.MeshLambertMaterial({color:0xFFFFFF}));
+guarita.position.set(-55, 1.5, 0);
+fabrica.add(guarita);
+
+const cercaMat = new THREE.MeshBasicMaterial({color:0x666666});
+const cercaFundo = new THREE.Mesh(new THREE.BoxGeometry(120,3,0.2),cercaMat);
+cercaFundo.position.set(0, 1.5, -50);
+fabrica.add(cercaFundo);
+for(let lado of [-1,1]){
+    const cercaLat = new THREE.Mesh(new THREE.BoxGeometry(0.2,3,100),cercaMat);
+    cercaLat.position.set(lado*60, 1.5, 0);
+    fabrica.add(cercaLat);
+}
+
+const portaoCentral = new THREE.Group();
+const portao_pilarE = new THREE.Mesh(new THREE.BoxGeometry(3,8,3),new THREE.MeshLambertMaterial({color:0x333333}));
+portao_pilarE.position.set(-12, 4, 0);
+portao_pilarE.castShadow = true;
+portaoCentral.add(portao_pilarE);
+const portao_pilarD = new THREE.Mesh(new THREE.BoxGeometry(3,8,3),new THREE.MeshLambertMaterial({color:0x333333}));
+portao_pilarD.position.set(12, 4, 0);
+portao_pilarD.castShadow = true;
+portaoCentral.add(portao_pilarD);
+const portao_viga = new THREE.Mesh(new THREE.BoxGeometry(27,2.5,3),new THREE.MeshLambertMaterial({color:0x2E5A9C}));
+portao_viga.position.set(0, 8, 0);
+portao_viga.castShadow = true;
+portaoCentral.add(portao_viga);
+const portao_canvas = document.createElement('canvas');
+portao_canvas.width = 512; portao_canvas.height = 128;
+const portao_ctx = portao_canvas.getContext('2d');
+portao_ctx.fillStyle = '#2E5A9C'; portao_ctx.fillRect(0,0,512,128);
+portao_ctx.fillStyle = '#FFFFFF'; portao_ctx.font = 'bold 48px Arial';
+portao_ctx.textAlign = 'center'; portao_ctx.fillText('ENTRADA PRINCIPAL', 256, 80);
+const portao_tex = new THREE.CanvasTexture(portao_canvas);
+const portao_placa = new THREE.Mesh(new THREE.PlaneGeometry(20,3),new THREE.MeshBasicMaterial({map: portao_tex}));
+portao_placa.position.set(0, 8, -1.6);
+portaoCentral.add(portao_placa);
+const portao_gradeE = new THREE.Mesh(new THREE.BoxGeometry(10,6,0.8),new THREE.MeshLambertMaterial({color:0x111111}));
+portao_gradeE.position.set(-6, 3, 0);
+portao_gradeE.rotation.y = Math.PI/2.5;
+portaoCentral.add(portao_gradeE);
+const portao_gradeD = new THREE.Mesh(new THREE.BoxGeometry(10,6,0.8),new THREE.MeshLambertMaterial({color:0x111111}));
+portao_gradeD.position.set(6, 3, 0);
+portao_gradeD.rotation.y = -Math.PI/2.5;
+portaoCentral.add(portao_gradeD);
+for(let j = 0; j < 10; j++){
+    const portao_faixa = new THREE.Mesh(new THREE.BoxGeometry(20,0.02,0.8),new THREE.MeshLambertMaterial({color:0xFFFFFF}));
+    portao_faixa.position.set(0, 0.11, -5 - j*1.5);
+    portaoCentral.add(portao_faixa);
+}
+portaoCentral.position.set(10, 0, 50);
+fabrica.add(portaoCentral);
+
+const portao_muretaE = new THREE.Mesh(new THREE.BoxGeometry(57,2,0.8),new THREE.MeshLambertMaterial({color:0x888888}));
+portao_muretaE.position.set(-31, 0.6, 50);
+fabrica.add(portao_muretaE);
+const portao_muretaD = new THREE.Mesh(new THREE.BoxGeometry(38,2,0.8),new THREE.MeshLambertMaterial({color:0x888888}));
+portao_muretaD.position.set(41, 0.6, 50);
+fabrica.add(portao_muretaD);
+
+fabrica.position.set(200, 0, 125);
+fabrica.rotation.y = Math.PI;
+scene.add(fabrica);
+
+// =====================================
+// RIO + PONTE
+// =====================================
+const river = new THREE.Mesh(new THREE.BoxGeometry(18,0.05,600),new THREE.MeshLambertMaterial({color:0x3498db}));
+river.position.set(120,0.03,0);
+scene.add(river);
+const bridge = new THREE.Mesh(new THREE.BoxGeometry(25,1,15),new THREE.MeshLambertMaterial({color:0x8B4513}));
+bridge.position.set(120,-0.3,0);
+scene.add(bridge);
+
+// =====================================
+// COLHEITADEIRA
+// =====================================
+function trocarVeiculo(veiculoEspecifico = null) {
+    // Se passou um veículo específico, usa ele. Se não, pega o próximo da lista
+    if (veiculoEspecifico) {
+        vehicles.current = veiculoEspecifico;
+        currentVehicle = veiculoEspecifico.type;
+    } else {
+        const ordem = ['tractor', 'colheitadeira', 'caminhao'];
+        let idx = ordem.indexOf(currentVehicle);
+        idx = (idx + 1) % ordem.length;
+        currentVehicle = ordem[idx];
+        vehicles.current = vehicles[currentVehicle];
+    }
+
+    const v = vehicles.current;
+    const pos = v.mesh.position;
+
+    // Teletransporta a câmera pra trás do veículo
+    camera.position.set(pos.x, pos.y + 15, pos.z + 25);
+    camera.lookAt(pos.x, pos.y, pos.z);
+
+    // Se tu usa OrbitControls
+    if (typeof controls!== 'undefined') {
+        controls.target.set(pos.x, pos.y, pos.z);
+        controls.update();
+    }
+
+    updateHUD();
+    mostraMsg(`🚜 ${currentVehicle.toUpperCase()} | Vel: ${v.maxSpeed} | Carga: ${v.storage}/${v.maxStorage}`);
+}
+function createColheitadeira() {
+    const group = new THREE.Group();
+    
+    // Materiais únicos da colheitadeira
+    const vermelhoCase = new THREE.MeshStandardMaterial({ color: 0xC41E3A });
+    const pretoColheitadeira = new THREE.MeshStandardMaterial({ color: 0x222222 });
+    const cinzaColheitadeira = new THREE.MeshStandardMaterial({ color: 0x8B0000 });
+    const rodaMatColheitadeira = new THREE.MeshStandardMaterial({ color: 0x111111 }); // RENOMEADO
+    const brancoColheitadeira = new THREE.MeshStandardMaterial({ color: 0xDDDDDD });
+
+    // 1. Corpo principal
+    const corpoGeo = new THREE.BoxGeometry(3.5, 2, 6);
+    const corpo = new THREE.Mesh(corpoGeo, vermelhoCase);
+    corpo.position.set(0, 1.2, 0);
+    group.add(corpo);
+
+    // 2. Cabine
+    const cabineGeo = new THREE.BoxGeometry(2.8, 1.8, 2.5);
+    const cabine = new THREE.Mesh(cabineGeo, pretoColheitadeira);
+    cabine.position.set(0, 3.1, 1.5);
+    group.add(cabine);
+
+    // 3. Graneleiro
+    const tanqueGeo = new THREE.BoxGeometry(3, 1.5, 2);
+    const tanque = new THREE.Mesh(tanqueGeo, cinzaColheitadeira);
+    tanque.position.set(0, 2.8, -1.2);
+    group.add(tanque);
+
+    // 4. Tubo de descarga
+    const tuboGeo = new THREE.CylinderGeometry(0.2, 0.2, 3, 8);
+    const tuboMat = new THREE.MeshStandardMaterial({ color: 0xFF0000 });
+    const tubo = new THREE.Mesh(tuboGeo, tuboMat);
+    tubo.rotation.z = Math.PI / 2;
+    tubo.position.set(-2, 3.5, -0.5);
+    group.add(tubo);
+
+    // 5. Plataforma de corte
+    const barraGeo = new THREE.BoxGeometry(8, 0.3, 1.2);
+    const barraMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    const barra = new THREE.Mesh(barraGeo, barraMat);
+    barra.position.set(0, 0.3, 3.5);
+    group.add(barra);
+
+    // 6. Molinete
+    for (let i = -3.5; i <= 3.5; i += 1) {
+        const denteGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.8, 8);
+        const dente = new THREE.Mesh(denteGeo, brancoColheitadeira);
+        dente.rotation.x = Math.PI / 2;
+        dente.position.set(i, 0.7, 3.5);
+        group.add(dente);
+    }
+
+    // 7. RODAS - USANDO rodaMatColheitadeira
+    const rodaGrandeGeo = new THREE.CylinderGeometry(1.1, 1.1, 1, 16);
+    const rodaPequenaGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.8, 16);
+
+    // Frente - rodas grandes
+    const rodaFE = new THREE.Mesh(rodaGrandeGeo, rodaMatColheitadeira);
+    rodaFE.rotation.z = Math.PI / 2;
+    rodaFE.position.set(-1.9, 1.1, 2);
+    group.add(rodaFE);
+
+    const rodaFD = new THREE.Mesh(rodaGrandeGeo, rodaMatColheitadeira);
+    rodaFD.rotation.z = Math.PI / 2;
+    rodaFD.position.set(1.9, 1.1, 2);
+    group.add(rodaFD);
+
+    // Traseira - rodas pequenas
+    const rodaTE = new THREE.Mesh(rodaPequenaGeo, rodaMatColheitadeira);
+    rodaTE.rotation.z = Math.PI / 2;
+    rodaTE.position.set(-1.5, 0.7, -2.2);
+    group.add(rodaTE);
+
+    const rodaTD = new THREE.Mesh(rodaPequenaGeo, rodaMatColheitadeira);
+    rodaTD.rotation.z = Math.PI / 2;
+    rodaTD.position.set(1.5, 0.7, -2.2);
+    group.add(rodaTD);
+
+    return { group };
+}
+function colherComColheitadeira(){
+  if(currentVehicle!== 'colheitadeira'){
+    mostraMsg('❌ Pilote a colheitadeira [TAB] pra colher');
+    return;
+  }
+
+  const posicaoAtual = vehicles.colheitadeira.mesh.position;
+  let campoProximo = campos.find(c => posicaoAtual.distanceTo(c.mesh.position) < 35 && c.pronto);
+
+  if(!campoProximo){
+    mostraMsg('❌ Nenhum campo maduro aqui');
+    return;
+  }
+
+  if(vehicles.colheitadeira.storage >= vehicles.colheitadeira.maxStorage){
+    mostraMsg('⚠️ Tanque cheio! Descarregue no caminhão [R]');
+    return;
+  }
+
+  vehicles.colheitadeira.storage++;
+  (vehicles.colheitadeira.cargas = vehicles.colheitadeira.cargas || []).push({
+    vidaSolo: campoProximo.vida,
+    tipoAgrotoxico: campoProximo.agrotoxicoTipo || 'organico'
+  });
+
+  alterarSustentabilidade(1);
+
+  if(campoProximo.geoCauleAtual) campoProximo.geoCauleAtual.dispose();
+  if(campoProximo.trigosMesh) scene.remove(campoProximo.trigosMesh);
+  campoProximo.geoCauleAtual = null;
+  campoProximo.trigosMesh = null;
+  campoProximo.trigos = [];
+
+  campoProximo.plantado = false;
+  campoProximo.pronto = false;
+  campoProximo.fase = 0;
+  campoProximo.arado = false;
+  campoProximo.agrotoxicoAplicado = false;
+  campoProximo.agrotoxicoTipo = null;
+  campoProximo.mesh.material.color.set(0x8B5A2B);
+
+  mostraMsg(`✅ Trigo colhido! Tanque: ${vehicles.colheitadeira.storage}/${vehicles.colheitadeira.maxStorage}`);
+  updateHUD();
+}
+ function venderDoCaminhao(){
+  if(vehicles.caminhao.mesh.position.distanceTo(fabrica.position) < 40){
+    if(vehicles.caminhao.storage > 0){
+      vehicles.caminhao.cargas = vehicles.caminhao.cargas || [];
+
+      let totalGanho = 0;
+      const PRECOS = {
+        organico: 200,
+        biologico: 240,
+        quimico: 280
+      };
+
+      // Se não tem histórico, vende tudo como orgânico por compatibilidade
+      if(vehicles.caminhao.cargas.length === 0){
+        totalGanho = vehicles.caminhao.storage * PRECOS.organico;
+      } else {
+        vehicles.caminhao.cargas.forEach(carga => {
+          let preco = PRECOS[carga.tipoAgrotoxico] || PRECOS.organico;
+          totalGanho += preco;
+        });
+      }
+
+      dinheiro += totalGanho;
+      tocarSom('dinheiro');
+      mostraMsg(`💰 Vendeu ${vehicles.caminhao.storage} cargas por R$${totalGanho}!`);
+
+      vehicles.caminhao.storage = 0;
+      vehicles.caminhao.cargas = [];
+      updateHUD();
+    } else {
+      mostraMsg('❌ Caminhão vazio! Colha e descarregue primeiro');
+    }
+  } else {
+    mostraMsg('❌ Leve o CAMINHÃO até a fábrica pra vender [B]');
+  }
+}
+const { group: colheitadeira } = createColheitadeira();
+colheitadeira.position.set(-20, 0, 25); // Nasce perto da garagem
+scene.add(colheitadeira);
+// =====================================
+// CAMINHÃO
+// =====================================
+function createCaminhao() {
+    const group = new THREE.Group();
+    const azulScania = new THREE.MeshStandardMaterial({ color: 0x0047AB, metalness: 0.6, roughness: 0.3 });
+    const cinzaCaminhao = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7 });
+    const pretoCaminhao = new THREE.MeshStandardMaterial({ color: 0x0A0A });
+    const prataCaminhao = new THREE.MeshStandardMaterial({ color: 0xE8E8E8, metalness: 0.9, roughness: 0.1 });
+    const cromado = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, metalness: 1, roughness: 0 });
+    const vidro = new THREE.MeshStandardMaterial({ color: 0x87CEEB, transparent: true, opacity: 0.25, metalness: 0.2, roughness: 0 });
+
+    const chassiGeo = new THREE.BoxGeometry(2.2, 0.3, 11);
+    const chassi = new THREE.Mesh(chassiGeo, cinzaCaminhao);
+    chassi.position.set(0, 0.55, -0.5);
+    group.add(chassi);
+
+    const cabineBaixoGeo = new THREE.BoxGeometry(2.4, 1.6, 2);
+    const cabineBaixo = new THREE.Mesh(cabineBaixoGeo, azulScania);
+    cabineBaixo.position.set(0, 1.5, 4.2);
+    group.add(cabineBaixo);
+
+    const cabineAltoGeo = new THREE.BoxGeometry(2.4, 1.4, 1.8);
+    const cabineAlto = new THREE.Mesh(cabineAltoGeo, azulScania);
+    cabineAlto.position.set(0, 3, 4.1);
+    cabineAlto.rotation.x = 0.1;
+    group.add(cabineAlto);
+
+    const defletorGeo = new THREE.BoxGeometry(2.2, 0.4, 1);
+    const defletor = new THREE.Mesh(defletorGeo, azulScania);
+    defletor.position.set(0, 3.9, 3.8);
+    defletor.rotation.x = 0.3;
+    group.add(defletor);
+
+    const gradeGeo = new THREE.BoxGeometry(2.2, 1.4, 0.15);
+    const grade = new THREE.Mesh(gradeGeo, pretoCaminhao);
+    grade.position.set(0, 1.4, 5.25);
+    group.add(grade);
+
+    for (let y = -0.4; y <= 0.4; y += 0.2) {
+        const frisoGeo = new THREE.BoxGeometry(2, 0.05, 0.05);
+        const friso = new THREE.Mesh(frisoGeo, cromado);
+        friso.position.set(0, 1.4 + y, 5.33);
+        group.add(friso);
+    }
+
+    const logoGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.06, 16);
+    const logo = new THREE.Mesh(logoGeo, cromado);
+    logo.rotation.x = Math.PI / 2;
+    logo.position.set(0, 1.4, 5.34);
+    group.add(logo);
+
+    const parabrisaGeo = new THREE.BoxGeometry(2.2, 1.2, 0.05);
+    const parabrisa = new THREE.Mesh(parabrisaGeo, vidro);
+    parabrisa.rotation.x = -0.25;
+    parabrisa.position.set(0, 2.4, 5.15);
+    group.add(parabrisa);
+
+    const vidroLatGeo = new THREE.BoxGeometry(0.05, 0.9, 1.2);
+    const vidroLE = new THREE.Mesh(vidroLatGeo, vidro);
+    vidroLE.position.set(-1.23, 2.3, 4.3);
+    group.add(vidroLE);
+    const vidroLD = new THREE.Mesh(vidroLatGeo, vidro);
+    vidroLD.position.set(1.23, 2.3, 4.3);
+    group.add(vidroLD);
+
+    const parachoqueGeo = new THREE.BoxGeometry(2.5, 0.6, 0.5);
+    const parachoque = new THREE.Mesh(parachoqueGeo, cinzaCaminhao);
+    parachoque.position.set(0, 0.6, 5.2);
+    group.add(parachoque);
+
+    const farolGeo = new THREE.BoxGeometry(0.5, 0.35, 0.1);
+    const farolMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0xFFFFFF, emissiveIntensity: 0.8 });
+    const molduraFE = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.08), pretoCaminhao);
+    molduraFE.position.set(-0.85, 0.9, 5.46);
+    group.add(molduraFE);
+    const farolE = new THREE.Mesh(farolGeo, farolMat);
+    farolE.position.set(-0.85, 0.9, 5.47);
+    group.add(farolE);
+    const molduraFD = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.4, 0.08), pretoCaminhao);
+    molduraFD.position.set(0.85, 0.9, 5.46);
+    group.add(molduraFD);
+    const farolD = new THREE.Mesh(farolGeo, farolMat);
+    farolD.position.set(0.85, 0.9, 5.47);
+    group.add(farolD);
+
+    for (let lado of [-1, 1]) {
+        const hasteGeo = new THREE.BoxGeometry(0.05, 0.05, 0.4);
+        const haste = new THREE.Mesh(hasteGeo, pretoCaminhao);
+        haste.position.set(1.3 * lado, 2.8, 4.8);
+        group.add(haste);
+        const espelhoGeo = new THREE.BoxGeometry(0.3, 0.5, 0.1);
+        const espelho = new THREE.Mesh(espelhoGeo, cromado);
+        espelho.position.set(1.5 * lado, 2.8, 4.8);
+        espelho.rotation.y = -0.3 * lado;
+        group.add(espelho);
+    }
+
+    const carroceriaGeo = new THREE.BoxGeometry(2.3, 2.2, 7.5);
+    const carroceria = new THREE.Mesh(carroceriaGeo, azulScania);
+    carroceria.position.set(0, 1.9, -1.2);
+    group.add(carroceria);
+
+    for (let z = -4; z <= 1; z += 1.5) {
+        const reforcoGeo = new THREE.BoxGeometry(2.35, 0.1, 0.05);
+        const reforco = new THREE.Mesh(reforcoGeo, azulScania);
+        reforco.position.set(0, 1.5, z);
+        group.add(reforco);
+    }
+
+    const lonaGeo = new THREE.BoxGeometry(2.4, 0.08, 7.6);
+    const lonaMat = new THREE.MeshStandardMaterial({ color: 0x1A1A });
+    const lona = new THREE.Mesh(lonaGeo, lonaMat);
+    lona.position.set(0, 3.05, -1.2);
+    group.add(lona);
+
+    const rodaGeoCaminhao = new THREE.CylinderGeometry(0.65, 0.65, 0.5, 24);
+    const aroGeoCaminhao = new THREE.CylinderGeometry(0.35, 0.35, 0.55, 16);
+    const pivoRodaFE = new THREE.Group();
+    const rodaFE = new THREE.Group();
+    const pneuFE = new THREE.Mesh(rodaGeoCaminhao, pretoCaminhao);
+    const aroFE = new THREE.Mesh(aroGeoCaminhao, prataCaminhao);
+    pneuFE.rotation.z = Math.PI / 2;
+    aroFE.rotation.z = Math.PI / 2;
+    rodaFE.add(pneuFE);
+    rodaFE.add(aroFE);
+    pivoRodaFE.add(rodaFE);
+    pivoRodaFE.position.set(-1.3, 0.65, 4);
+    group.add(pivoRodaFE);
+
+    const pivoRodaFD = new THREE.Group();
+    const rodaFD = new THREE.Group();
+    const pneuFD = new THREE.Mesh(rodaGeoCaminhao, pretoCaminhao);
+    const aroFD = new THREE.Mesh(aroGeoCaminhao, prataCaminhao);
+    pneuFD.rotation.z = Math.PI / 2;
+    aroFD.rotation.z = Math.PI / 2;
+    rodaFD.add(pneuFD);
+    rodaFD.add(aroFD);
+    pivoRodaFD.add(rodaFD);
+    pivoRodaFD.position.set(1.3, 0.65, 4);
+    group.add(pivoRodaFD);
+
+    for (let z of [-2.2, -3.7]) {
+        for (let lado of [-1, 1]) {
+            for (let offset of [-0.32, 0.32]) {
+                const roda = new THREE.Mesh(rodaGeoCaminhao, pretoCaminhao);
+                const aro = new THREE.Mesh(aroGeoCaminhao, prataCaminhao);
+                roda.rotation.z = Math.PI / 2;
+                aro.rotation.z = Math.PI / 2;
+                roda.add(aro);
+                roda.position.set((1.15 * lado) + offset, 0.65, z);
+                group.add(roda);
+            }
+        }
+    }
+
+    const escapeGeo = new THREE.CylinderGeometry(0.12, 0.12, 2, 12);
+    const escape = new THREE.Mesh(escapeGeo, cromado);
+    escape.position.set(-1.25, 2.3, 3.2);
+    group.add(escape);
+
+    const tanqueGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.8, 16);
+    const tanqueE = new THREE.Mesh(tanqueGeo, cromado);
+    tanqueE.rotation.z = Math.PI / 2;
+    tanqueE.position.set(-1.3, 0.7, 1);
+    group.add(tanqueE);
+    const tanqueD = new THREE.Mesh(tanqueGeo, cromado);
+    tanqueD.rotation.z = Math.PI / 2;
+    tanqueD.position.set(1.3, 0.7, 1);
+    group.add(tanqueD);
+
+    for (let y of [0.8, 1.1]) {
+        const degrauGeo = new THREE.BoxGeometry(0.4, 0.05, 0.3);
+        const degrauE = new THREE.Mesh(degrauGeo, cinzaCaminhao);
+        degrauE.position.set(-1.2, y, 4.8);
+        group.add(degrauE);
+        const degrauD = new THREE.Mesh(degrauGeo, cinzaCaminhao);
+        degrauD.position.set(1.2, y, 4.8);
+        group.add(degrauD);
+    }
+
+    group.scale.set(0.85, 0.85, 0.85);
+    return { group, rodaFD, rodaFE, pivoRodaFD, pivoRodaFE };
+}
+const resultadoCaminhao = createCaminhao();
+const caminhao = resultadoCaminhao.group;
+const pivoRodaFDCaminhao = resultadoCaminhao.pivoRodaFD;
+const pivoRodaFECaminhao = resultadoCaminhao.pivoRodaFE;
+scene.add(caminhao);
+caminhao.position.set(-190, 0, -135);
+
+// =====================================
+// VEÍCULOS SETUP
+// =====================================
+vehicles = {
+    tractor: {
+        mesh: tractor,
+        speed: 0,
+        maxSpeed:0.7,
+        acceleration: 0.004,
+        storage: 0,
+        maxStorage: 0,
+        type: 'tractor'
+    },
+    colheitadeira: {
+        mesh: colheitadeira,
+        speed: 0,
+        maxSpeed: 0.5,
+        acceleration: 0.0015,
+        storage: 0, 
+        maxStorage: 10,
+        type: 'harvester'
+    },
+    caminhao: {
+        mesh: caminhao,
+        speed: 0,
+        maxSpeed: 1.2,
+        acceleration: 0.002,
+        storage: 0, 
+        maxStorage: 50,
+        type: 'truck'
+    }
+};
+
+
+vehicles.tractor.maxSpeed = gameConfig.velocidades.tractor;
+vehicles.colheitadeira.maxSpeed = gameConfig.velocidades.colheitadeira;
+vehicles.caminhao.maxSpeed = gameConfig.velocidades.caminhao;
+  // =====================================
+// OVELHAS
+// =====================================
+function createSheep(x, z) {
+    const ovelha = new THREE.Group();
+    const corCorpo = 0xE8DCC6, corLa = 0xF0F0F0, corRosa = 0xE8B4D9, corPreto = 0x1A1A1A, corCasco = 0xB8B8B8;
+    const corpo = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.2),new THREE.MeshLambertMaterial({color: corCorpo}));
+    corpo.position.y = 0.7; corpo.castShadow = true; ovelha.add(corpo);
+    const cabecaBase = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),new THREE.MeshLambertMaterial({color: corCorpo}));
+    cabecaBase.position.set(1.1, 1, 0); cabecaBase.castShadow = true; ovelha.add(cabecaBase);
+    const laCabeca = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 1.2),new THREE.MeshLambertMaterial({color: corLa}));
+    laCabeca.position.set(1.1, 1.5, 0); laCabeca.castShadow = true; ovelha.add(laCabeca);
+    const focinho = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.6),new THREE.MeshLambertMaterial({color: corCorpo}));
+    focinho.position.set(1.6, 0.85, 0); ovelha.add(focinho);
+    const nariz = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.1),new THREE.MeshLambertMaterial({color: corRosa}));
+    nariz.position.set(1.86, 0.85, 0); ovelha.add(nariz);
+    const olhoGeo = new THREE.BoxGeometry(0.2, 0.25, 0.1);
+    const olhoMat = new THREE.MeshLambertMaterial({color: corPreto});
+    const olho1 = new THREE.Mesh(olhoGeo, olhoMat); olho1.position.set(1.5, 1.05, 0.25); ovelha.add(olho1);
+    const olho2 = new THREE.Mesh(olhoGeo, olhoMat); olho2.position.set(1.5, 1.05, -0.25); ovelha.add(olho2);
+    const brilhoGeo = new THREE.BoxGeometry(0.08, 0.08, 0.05);
+    const brilhoMat = new THREE.MeshBasicMaterial({color: 0xFFFFFF});
+    const brilho1 = new THREE.Mesh(brilhoGeo, brilhoMat); brilho1.position.set(1.56, 1.1, 0.3); ovelha.add(brilho1);
+    const brilho2 = new THREE.Mesh(brilhoGeo, brilhoMat); brilho2.position.set(1.56, 1.1, -0.2); ovelha.add(brilho2);
+    const orelha1 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25),new THREE.MeshLambertMaterial({color: corLa}));
+    orelha1.position.set(0.8, 1.3, 0.6); ovelha.add(orelha1);
+    const orelhaRosa1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.05),new THREE.MeshLambertMaterial({color: corRosa}));
+    orelhaRosa1.position.set(0.8, 1.3, 0.73); ovelha.add(orelhaRosa1);
+    const orelha2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25),new THREE.MeshLambertMaterial({color: corLa}));
+    orelha2.position.set(0.8, 1.3, -0.6); ovelha.add(orelha2);
+    const orelhaRosa2 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.05),new THREE.MeshLambertMaterial({color: corRosa}));
+    orelhaRosa2.position.set(0.8, 1.3, -0.73); ovelha.add(orelhaRosa2);
+    const pataPositions = [{x: 0.5, z: 0.45},{x: 0.5, z: -0.45},{x: -0.5, z: 0.45},{x: -0.5, z: -0.45}];
+    pataPositions.forEach(pos => {
+        const laPata = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.35),new THREE.MeshLambertMaterial({color: corLa}));
+        laPata.position.set(pos.x, 0, pos.z); ovelha.add(laPata);
+        const cascoBege = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.35),new THREE.MeshLambertMaterial({color: corCorpo}));
+        cascoBege.position.set(pos.x, -0.4, pos.z); ovelha.add(cascoBege);
+        const cascoCinza = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.1, 0.35),new THREE.MeshLambertMaterial({color: corCasco}));
+        cascoCinza.position.set(pos.x, -0.55, pos.z); ovelha.add(cascoCinza);
+    });
+    ovelha.position.set(x, 0, z);
+    ovelha.velocidadeX = (Math.random() - 0.5) * 0.015;
+    ovelha.velocidadeZ = (Math.random() - 0.5) * 0.015;
+    ovelha.tempoDirecao = 100 + Math.random() * 150;
+    scene.add(ovelha);
+    animais.push(ovelha);
+}
+
+function moverAnimais() {
+    animais.forEach(animal => {
+        animal.tempoDirecao--;
+        if(animal.tempoDirecao <= 0) {
+            animal.velocidadeX = (Math.random() - 0.5) * 0.015;
+            animal.velocidadeZ = (Math.random() - 0.5) * 0.015;
+            animal.tempoDirecao = 100 + Math.random() * 200;
+        }
+        animal.position.x += animal.velocidadeX;
+        animal.position.z += animal.velocidadeZ;
+        if(animal.position.x < LIMITE_PASTO.minX + 1.5 || animal.position.x > LIMITE_PASTO.maxX - 1.5) {
+            animal.velocidadeX *= -1;
+            animal.position.x = THREE.MathUtils.clamp(animal.position.x, LIMITE_PASTO.minX + 1.5, LIMITE_PASTO.maxX - 1.5);
+        }
+        if(animal.position.z < LIMITE_PASTO.minZ + 1.5 || animal.position.z > LIMITE_PASTO.maxZ - 1.5) {
+            animal.velocidadeZ *= -1;
+            animal.position.z = THREE.MathUtils.clamp(animal.position.z, LIMITE_PASTO.minZ + 1.5, LIMITE_PASTO.maxZ - 1.5);
+        }
+        if(Math.abs(animal.velocidadeX) > 0.001 || Math.abs(animal.velocidadeZ) > 0.001) {
+            animal.rotation.y = Math.atan2(animal.velocidadeX, animal.velocidadeZ);
+        }
+    });
+}
+
+setTimeout(() => {
+    for(let i = 0; i < 4; i++){
+        const x = LIMITE_PASTO.minX + 5 + Math.random() * (LIMITE_PASTO.maxX - LIMITE_PASTO.minX - 10);
+        const z = LIMITE_PASTO.minZ + 5 + Math.random() * (LIMITE_PASTO.maxZ - LIMITE_PASTO.minZ - 10);
+        createSheep(x, z);
+    }
+    mostraMsg('🐑 4 ovelhinhas fofas chegaram no pasto!');
+}, 3000);
+
+// =====================================
+// HUD + CONTROLES
+// =====================================
+const keys = {};
+let velocidadeAtual = 0;
+let aceleracao = 0.002;
+let desaceleracao = 0.003;
+const rotationSpeed = 0.03;
+let cameraAngle = 0;
+const cameraRotationSpeed = 0.04;
+
+function alterarSustentabilidade(valor){
+    // if(pausarJogo) return; // APAGA ESSA LINHA
+    
+    sustentabilidade += valor;
+    sustentabilidade = THREE.MathUtils.clamp(sustentabilidade, 0, 100);
+    
+    // Muda cor do HUD baseado no valor
+    const sustentEl = document.getElementById('sustent');
+    if(sustentabilidade < 25) sustentEl.style.color = '#F44336'; // Vermelho
+    else if(sustentabilidade < 50) sustentEl.style.color = '#FFC107'; // Amarelo  
+    else sustentEl.style.color = '#ffeb3b'; // Amarelo padrão
+    
+    updateHUD();
+    
+    if(sustentabilidade <= 0){
+        gameOverAmbiental();
+    }
+}
+function gameOverAmbiental(){
+    pausarJogo = true;
+    tocarSom('erro');
+    const telaGameOver = document.createElement('div');
+    telaGameOver.style.cssText = `position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(183,28,0.95); color:white; z-index:9999; display:flex; flex-direction:column; justify-content:center; align-items:center; font-family:Arial; text-align:center;`;
+    telaGameOver.innerHTML = `<h1 style="font-size:48px; margin:0;">COLAPSO AMBIENTAL</h1><p style="font-size:20px; margin:20px 0;">Seu solo ficou infértil e os rios secaram.</p><p style="font-size:18px;">O agronegócio não sobrevive sem natureza.</p><h2 style="color:#FFD700; margin-top:30px;">Rank: Produtor Predatório</h2><button onclick="location.reload()" style="margin-top:30px; padding:15px 30px; font-size:18px; cursor:pointer; background:#fff; color:#B71C1C; border:none; border-radius:5px;">Recomeçar</button>`;
+    document.body.appendChild(telaGameOver);
+}
+
+function updateHUD() {
+    document.getElementById('dinheiro').textContent = dinheiro;
+    document.getElementById('sementes').textContent = sementes;
+    document.getElementById('sustent').textContent = Math.round(sustentabilidade);
+    // Não mexe nas linhas do tanque e caminhao se já estão funcionando
+    document.getElementById('vacas').textContent = vacas.length;
+    document.getElementById('leite').textContent = leite + 'L';
+    
+    atualizarBarraSustentabilidade(); // Só adiciona essa linha
+}
+function atualizarBarraSustentabilidade() {
+    // Trava entre 0 e 100
+    sustentabilidade = THREE.MathUtils.clamp(sustentabilidade, 0, 100);
+    
+    // Atualiza o texto
+    document.getElementById('sustent').textContent = Math.round(sustentabilidade);
+    
+    // Atualiza a barra
+    const barra = document.getElementById('barra-sustentabilidade');
+    barra.style.width = sustentabilidade + '%';
+    
+    // Muda cor: verde > amarelo > vermelho
+    if (sustentabilidade > 60) {
+        barra.style.background = '#4CAF50'; // Verde
+    } else if (sustentabilidade > 30) {
+        barra.style.background = '#FFC107'; // Amarelo
+    } else {
+        barra.style.background = '#F44336'; // Vermelho
+    }
+}
+function mostraMsg(texto){
+  if(texto.startsWith('❌')) tocarSom('erro');
+  const msg = document.createElement('div');
+  msg.innerText = texto;
+  msg.style.cssText = `position:absolute; bottom:20px; left:50%; transform:translateX(-50%); background:#2d5016; color:white; padding:10px 20px; border-radius:20px; font-family:Arial; z-index:999;`;
+  document.body.appendChild(msg);
+  setTimeout(() => msg.remove(), 3000);
+}
+
+updateHUD();
+ function comprarTerreno(){
+    const campoProx = campos.find(c => tractor.position.distanceTo(c.mesh.position) < 35 && !c.comprado);
+    if(!campoProx) return mostraMsg('❌ Nenhum terreno pra comprar aqui');
+    if(dinheiro < campoProx.preco) return mostraMsg(`❌ Precisa R$${campoProx.preco}`);
+    
+    dinheiro -= campoProx.preco;
+    campoProx.comprado = true;
+    campoProx.mesh.material.color.set(0x8B5A2B); // Cor normal
+    scene.remove(campoProx.placa);
+    mostraMsg(`✅ Terreno comprado por R$${campoProx.preco}!`);
+    updateHUD();
+}
+function abrirLoja(){
+    if(tractor.position.distanceTo(melkstad.position) > 8000){
+        return mostraMsg('❌ Vá até a fazenda pra abrir a loja');
+    }
+    if(dinheiro < gameConfig.loja.precoSemente){
+        return mostraMsg(`❌ Sem grana. 10 sementes = R$${gameConfig.loja.precoSemente}`);
+    }
+    dinheiro -= gameConfig.loja.precoSemente;
+    sementes += gameConfig.loja.qtdSementePack;
+    mostraMsg(`✅ Comprou ${gameConfig.loja.qtdSementePack} sementes!`);
+    updateHUD();
+}
+
+function abrirEscolhaAgrotoxico(campo) {
+    if (modoEscolhaAgrotoxico) return;
+    modoEscolhaAgrotoxico = true;
+    campoAguardandoAgrotoxico = campo;
+    pausarJogo = true;
+    let modal = document.getElementById('modal-agrotoxico');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'modal-agrotoxico';
+        modal.style.cssText = `position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; display: flex; justify-content: center; align-items: center; font-family: Arial;`;
+        modal.innerHTML = `<div style="background: #2d5016; padding: 25px; border-radius: 12px; border: 3px solid #FFC107; max-width: 450px; text-align: center; color: white;"><h2 style="margin-top:0; color: #FFC107;">🌾 Campo Maduro!</h2><p style="font-size: 16px; margin: 15px 0;">Deseja aplicar agrotóxico antes de colher?</p><div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; margin: 15px 0; text-align: left; font-size: 14px;"><div><b style="color: #4CAF50;">🌱 Orgânico:</b> Sustentabilidade +8. Preço base.</div><div style="margin-top: 8px;"><b style="color: #FF5252;">☠️ Químico:</b> Sustentabilidade -10. Venda +40%.</div><div style="margin-top: 8px;"><b style="color: #2196F3;">🧪 Biológico:</b> Sustentabilidade -5. Venda +20%.</div></div><div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;"><button onclick="aplicarAgrotoxico('organico')" style="padding: 12px 18px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">🌱 Orgânico</button><button onclick="aplicarAgrotoxico('quimico')" style="padding: 12px 18px; background: #F44336; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">☠️ Químico</button><button onclick="aplicarAgrotoxico('biologico')" style="padding: 12px 18px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: bold;">🧪 Biológico</button></div></div>`;
+        document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+}
+
+function aplicarAgrotoxico(tipo) {
+    if (!campoAguardandoAgrotoxico) return;
+    const campo = campoAguardandoAgrotoxico;
+    
+    if (campo.agrotoxicoAplicado) {
+        mostrarmsg('❌ Já foi aplicado agrotóxico nesse campo');
+        fecharEscolhaAgrotoxico();
+        return;
+    }
+
+    if (tipo === 'organico') {
+        alterarSustentabilidade(8);
+        campo.agrotoxicoTipo = 'organico';
+        campo.agrotoxicoAplicado = true;
+        mostrarmsg('🌱 Orgânico aplicado! Sustentabilidade +8%');
+    }
+    
+    if (tipo === 'quimico') {
+        if (dinheiro < 0) {
+            mostrarmsg('❌ Precisa R$ 50');
+            fecharEscolhaAgrotoxico();
+            return;
+        }
+        alterarSustentabilidade(-10);
+        campo.agrotoxicoTipo = 'quimico';
+        campo.agrotoxicoAplicado = true;
+        mostrarmsg('☠️ Químico aplicado! Sustentabilidade -5%');
+    }
+    
+    if (tipo === 'biologico') {
+        if (dinheiro < 30) {
+            mostrarmsg('❌ Precisa R$ 30');
+            fecharEscolhaAgrotoxico();
+            return;
+        }
+        dinheiro -= 30;
+        alterarSustentabilidade(-5);
+        campo.agrotoxicoTipo = 'biologico';
+        campo.agrotoxicoAplicado = true;
+        mostrarmsg('🧪 Biológico aplicado! Sustentabilidade -1%');
+    }
+
+    fecharEscolhaAgrotoxico();
+}
+
+function fecharEscolhaAgrotoxico() {
+    const modal = document.getElementById('modal-agrotoxico');
+    if (modal) modal.style.display = 'none';
+    modoEscolhaAgrotoxico = false;
+    campoAguardandoAgrotoxico = null;
+    pausarJogo = false;
+}
+// =====================================
+// TUTORIAL
+// =====================================
+const tutorialDiv = document.createElement('div');
+tutorialDiv.id = 'tutorial';
+tutorialDiv.style.cssText = `position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); color: white; padding: 30px; border-radius: 10px; font-family: Arial; font-size: 18px; text-align: center; max-width: 550px; display: none; z-index: 1000; border: 3px solid #4CAF50;`;
+tutorialDiv.innerHTML = `<h2 style="margin-top:0;color:#4CAF50">📖 Tutorial Agrinho Farming V4</h2><p id="textoDica"></p><button id="proximaDica" style="padding:10px 20px;margin:10px;font-size:16px;cursor:pointer;background:#4CAF50;color:white;border:none;border-radius:5px">Próxima →</button><button id="fecharTutorial" style="padding:10px 20px;margin:10px;font-size:16px;cursor:pointer;background:#f44336;color:white;border:none;border-radius:5px">Fechar [L]</button>`;
+document.body.appendChild(tutorialDiv);
+
+const dicas = [
+  "Bem-vindo ao Fargrinho! [L] fecha este tutorial.",
+  "Controles: WASD = Dirigir| TAB = Trocar veículo",
+ "Perto do trator estão o arado e a plantadeira. Pressione 1 para engatar o arado, 2 para a plantadeira e 0 para soltar.",
+  "Campo: E = Arar/Plantar | C = Colher | R = Descarregar | B = Vender",
+  "Tecla F = Comprar terreno | P = Comprar sementes | K = Salvar | J = Carregar",
+  "Mecânica: Arar > Plantar > Esperar 1min > Escolher agrotoxico > Colher. Solo perde vida se plantar seguido!",
+  "Sustentabilidade < 0 = Game Over.",
+  "AGROTÓXICO: ganha bonus de 40% (Total:280R$), mas perde -10% sustentabilidade",
+  "ORGÂNICO: ganha +8% sustentabilidade por uso, mas sem dinheiro extra, preço base 200R$",
+   "BIOLÓGICO: ganha 20% a mais de dinheiro na venda (Total: 240R$), mas perde 5% de sustentabilidade",
+  "VENDA: Colheitadeira 10u = $100 | Caminhão 50u = $500 | Celeiro vende tudo",
+  "LEITE: Vaca $500 | Produz 50 litros por dia (2 minutos e 45 segundos)| Venda manual: $2,65/L",
+  "LIMITE: Tanque 10u | Caminhão 50u | Não colhe se estiver cheio",
+  "DICA: Revezar químico e orgânico mantém solo saudável e lucro alto",
+  "Tenha um otimo jogo, mas reflita que as vezes destruir a terra por dinheiro não vale apena.🚜🌎",
+ "Galpões de vacas inspirados nas fazendas de Melstad, PR",
+"Prefeitura inspirada no Paço Municipal de Carambeí",
+"Indústria inspirada na Maltaria Campos Gerais, Ponta Grossa",
+  "Temos um bug no numero de vacas quando compra mas a mecanica funciona, desculpa pelo ocorrido",
+  "O numero de litros de leite tambem esta meio quebrado mas é só visual, ele vende normalmente",
+];
+
+function abrirTutorial(){
+  tutorialAtivo = true;
+  dicaAtual = 0;
+  document.getElementById('tutorial').style.display = 'block';
+  atualizarDica();
+}
+
+function fecharTutorial(){
+  tutorialAtivo = false;
+  document.getElementById('tutorial').style.display = 'none';
+}
+
+function atualizarDica(){
+  document.getElementById('textoDica').innerText = dicas[dicaAtual];
+  const btnProx = document.getElementById('proximaDica');
+  if(dicaAtual >= dicas.length - 1){
+    btnProx.innerText = 'Finalizar';
+  } else {
+    btnProx.innerText = 'Próxima →';
+  }
+}
+
+function proximaDica(){
+  if(dicaAtual < dicas.length - 1){
+    dicaAtual++;
+    atualizarDica();
+  } else {
+    fecharTutorial();
+  }
+}
+
+// Já cria os botões com onclick direto
+tutorialDiv.innerHTML = `<h2 style="margin-top:0;color:#4CAF50">📖 Tutorial Agrinho Farming V4</h2><p id="textoDica"></p><button id="proximaDica" style="padding:10px 20px;margin:10px;font-size:16px;cursor:pointer;background:#4CAF50;color:white;border:none;border-radius:5px">Próxima →</button><button id="fecharTutorial" style="padding:10px 20px;margin:10px;font-size:16px;cursor:pointer;background:#f44336;color:white;border:none;border-radius:5px">Fechar [L]</button>`;
+document.body.appendChild(tutorialDiv);
+
+// Pega os botões DEPOIS de adicionar no DOM
+document.getElementById('proximaDica').onclick = proximaDica;
+document.getElementById('fecharTutorial').onclick = fecharTutorial;
+function criarCampo(x, z) {
+    const tamanho = 40;
+    const geometria =  new THREE.PlaneGeometry(70,40,40);
+    const material = new THREE.MeshLambertMaterial({color:0x8B5A2B});
+    const mesh = new THREE.Mesh(geometria, material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.1, z);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    const campo = {
+        mesh: mesh,
+        x: x,
+        z: z,
+        tamanho: tamanho,
+        arado: false,
+        plantado: false,
+        pronto: false,
+        fase: 0,
+        vida: 100,
+        ultimoCultivo: null,
+        colheitasSeguidas: 0,
+        agrotoxicoAplicado: false,
+        agrotoxicoTipo: null,
+        precoPorUnidade: 360,
+        qualidade: 'boa',
+        trigos: [],
+        trigosMesh: null,
+        geoCauleAtual: null
+    };
+
+    campos.push(campo);
+    return campo;
+}
+
+  // =====================================
+// LOOP PRINCIPAL
+// =====================================
+  function moverVacas(){
+    if(!vacas3D || vacas3D.length === 0) return;
+
+    vacas3D.forEach(vaca => {
+        if (!vaca ||!vaca.userData) return;
+
+        // Se não tem destino, cria um novo
+        if(!vaca.userData.destino){
+            if (galpoesVacas.length === 0) return;
+
+            // Acha o galpão mais próximo da vaca
+            const galpao = galpoesVacas.find(g =>
+                Math.abs(vaca.position.x - (melkstad.position.x + g.position.x)) < 30
+            );
+
+            if(!galpao ||!galpao.userData ||!galpao.userData.areaLivre) return;
+
+            const area = galpao.userData.areaLivre;
+            vaca.userData.destino = new THREE.Vector3(
+                melkstad.position.x + galpao.position.x + THREE.MathUtils.randFloat(area.minX, area.maxX),
+                0,
+                melkstad.position.z + galpao.position.z + THREE.MathUtils.randFloat(area.minZ, area.maxZ)
+            );
+            vaca.userData.velocidade = THREE.MathUtils.randFloat(0.015, 0.03);
+            vaca.userData.tempoAnim = vaca.userData.tempoAnim || 0;
+        }
+
+        const dir = vaca.userData.destino.clone().sub(vaca.position);
+        const distancia = dir.length();
+
+        if(distancia > 0.3){
+            dir.normalize();
+            vaca.position.add(dir.multiplyScalar(vaca.userData.velocidade));
+            vaca.rotation.y = Math.atan2(dir.x, dir.z);
+
+            // Animação das pernas
+            vaca.userData.tempoAnim += vaca.userData.velocidade * 8;
+            const balanco = Math.sin(vaca.userData.tempoAnim) * 0.6;
+            if(vaca.userData.pernas && vaca.userData.pernas.length === 4){
+                vaca.userData.pernas[0].rotation.x = balanco; // frente esq
+                vaca.userData.pernas[3].rotation.x = balanco; // tras dir
+                vaca.userData.pernas[1].rotation.x = -balanco; // frente dir
+                vaca.userData.pernas[2].rotation.x = -balanco; // tras esq
+            }
+        } else {
+            // Chegou no destino, para e espera
+            if(vaca.userData.pernas){
+                vaca.userData.pernas.forEach(perna => perna.rotation.x = 0);
+            }
+
+            if(!vaca.userData.tempoParada) vaca.userData.tempoParada = Date.now();
+            const tempoEspera = THREE.MathUtils.randFloat(4000, 10000);
+
+            if(Date.now() - vaca.userData.tempoParada > tempoEspera){
+                vaca.userData.destino = null;
+                vaca.userData.tempoParada = null;
+            }
+        }
+    });
+}
+  function getCurrentVehicle(){
+  return vehicles[currentVehicle];
+}
+  // =====================================
+// MOVIMENTAÇÃO DO VEÍCULO
+// =====================================
+function atualizarVeiculo(){
+    const current = getCurrentVehicle();
+    if(!current || !current.mesh) return;
+
+    const speed = 0.4;
+    const rotSpeed = 0.03;
+
+    // Frente/trás
+    if(keys['w'] || keys['ArrowUp']){
+        current.mesh.position.x -= Math.sin(current.mesh.rotation.y) * speed;
+        current.mesh.position.z -= Math.cos(current.mesh.rotation.y) * speed;
+    }
+    if(keys['s'] || keys['ArrowDown']){
+        current.mesh.position.x += Math.sin(current.mesh.rotation.y) * speed * 0.6;
+        current.mesh.position.z += Math.cos(current.mesh.rotation.y) * speed * 0.6;
+    }
+
+    // Girar
+    if(keys['a'] || keys['ArrowLeft']){
+        current.mesh.rotation.y += rotSpeed;
+    }
+    if(keys['d'] || keys['ArrowRight']){
+        current.mesh.rotation.y -= rotSpeed;
+    }
+
+    // Limita dentro do mundo
+    current.mesh.position.x = THREE.MathUtils.clamp(current.mesh.position.x, -400, 400);
+    current.mesh.position.z = THREE.MathUtils.clamp(current.mesh.position.z, -400, 400);
+}
+  function criarVaca3D(index){
+    const grupo = new THREE.Group();
+    const branco = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+    const preto = new THREE.MeshLambertMaterial({ color: 0x1C1C1C });
+    const rosa = new THREE.MeshLambertMaterial({ color: 0xFFB6C1 });
+    const chifreMat = new THREE.MeshLambertMaterial({ color: 0xC8B094 });
+    const cascoMat = new THREE.MeshLambertMaterial({ color: 0xD3D3D3 });
+
+    // CORPO - bloco principal
+    const corpo = new THREE.Mesh(
+        new THREE.BoxGeometry(1.2, 1.2, 2),
+        branco
+    );
+    corpo.position.y = 1.2;
+    grupo.add(corpo);
+
+    // CABEÇA
+    const cabeca = new THREE.Mesh(
+        new THREE.BoxGeometry(1.1, 1.1, 1.1),
+        branco
+    );
+    cabeca.position.set(0, 1.3, 1.5);
+    grupo.add(cabeca);
+
+    // FOCINHO ROSA
+    const focinho = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 0.5, 0.6),
+        rosa
+    );
+    focinho.position.set(0, 1.1, 2.1);
+    grupo.add(focinho);
+
+    // NARINA - 2 quadrados rosa escuro
+    const narinaGeo = new THREE.BoxGeometry(0.2, 0.15, 0.01);
+    const narinaMat = new THREE.MeshLambertMaterial({ color: 0xE89BAE });
+    const narina1 = new THREE.Mesh(narinaGeo, narinaMat);
+    narina1.position.set(-0.2, 1.1, 2.41);
+    grupo.add(narina1);
+    const narina2 = new THREE.Mesh(narinaGeo, narinaMat);
+    narina2.position.set(0.2, 1.1, 2.41);
+    grupo.add(narina2);
+
+    // OLHOS
+    const olhoGeo = new THREE.BoxGeometry(0.2, 0.2, 0.01);
+    const olhoE = new THREE.Mesh(olhoGeo, preto);
+    olhoE.position.set(-0.3, 1.5, 2.06);
+    grupo.add(olhoE);
+    const olhoD = new THREE.Mesh(olhoGeo, preto);
+    olhoD.position.set(0.3, 1.5, 2.06);
+    grupo.add(olhoD);
+
+    // PUPILA BRANCA - brilho do olho
+    const pupilaGeo = new THREE.BoxGeometry(0.08, 0.08, 0.01);
+    const pupilaE = new THREE.Mesh(pupilaGeo, branco);
+    pupilaE.position.set(-0.25, 1.55, 2.07);
+    grupo.add(pupilaE);
+    const pupilaD = new THREE.Mesh(pupilaGeo, branco);
+    pupilaD.position.set(0.35, 1.55, 2.07);
+    grupo.add(pupilaD);
+
+    // CHIFRES - estilo voxel
+    const chifreBase = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+    const chifreMeio = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+    const chifrePonta = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+
+    const chifreE1 = new THREE.Mesh(chifreBase, chifreMat);
+    chifreE1.position.set(-0.5, 1.8, 1.6);
+    chifreE1.rotation.z = -0.3;
+    grupo.add(chifreE1);
+    const chifreE2 = new THREE.Mesh(chifreMeio, chifreMat);
+    chifreE2.position.set(-0.65, 2.0, 1.6);
+    chifreE2.rotation.z = -0.5;
+    grupo.add(chifreE2);
+    const chifreE3 = new THREE.Mesh(chifrePonta, chifreMat);
+    chifreE3.position.set(-0.75, 2.15, 1.6);
+    chifreE3.rotation.z = -0.7;
+    grupo.add(chifreE3);
+
+    const chifreD1 = new THREE.Mesh(chifreBase, chifreMat);
+    chifreD1.position.set(0.5, 1.8, 1.6);
+    chifreD1.rotation.z = 0.3;
+    grupo.add(chifreD1);
+    const chifreD2 = new THREE.Mesh(chifreMeio, chifreMat);
+    chifreD2.position.set(0.65, 2.0, 1.6);
+    chifreD2.rotation.z = 0.5;
+    grupo.add(chifreD2);
+    const chifreD3 = new THREE.Mesh(chifrePonta, chifreMat);
+    chifreD3.position.set(0.75, 2.15, 1.6);
+    chifreD3.rotation.z = 0.7;
+    grupo.add(chifreD3);
+
+    // ORELHAS
+    const orelhaGeo = new THREE.BoxGeometry(0.1, 0.4, 0.4);
+    const orelhaE = new THREE.Mesh(orelhaGeo, branco);
+    orelhaE.position.set(-0.6, 1.4, 1.4);
+    grupo.add(orelhaE);
+    const orelhaD = new THREE.Mesh(orelhaGeo, branco);
+    orelhaD.position.set(0.6, 1.4, 1.4);
+    grupo.add(orelhaD);
+
+    // ORELHA ROSA DENTRO
+    const orelhaRosaGeo = new THREE.BoxGeometry(0.05, 0.25, 0.25);
+    const orelhaRosaE = new THREE.Mesh(orelhaRosaGeo, rosa);
+    orelhaRosaE.position.set(-0.61, 1.4, 1.4);
+    grupo.add(orelhaRosaE);
+    const orelhaRosaD = new THREE.Mesh(orelhaRosaGeo, rosa);
+    orelhaRosaD.position.set(0.61, 1.4, 1.4);
+    grupo.add(orelhaRosaD);
+
+    // 4 PERNAS
+    const pernaGeo = new THREE.BoxGeometry(0.35, 1.2, 0.35);
+    const posPerna = [
+        [-0.35, 0.6, 0.7], [0.35, 0.6, 0.7],
+        [-0.35, 0.6, -0.7], [0.35, 0.6, -0.7]
+    ];
+    posPerna.forEach(p => {
+        const perna = new THREE.Mesh(pernaGeo, branco);
+        perna.position.set(...p);
+        grupo.add(perna);
+
+        // CASCO CINZA
+        const casco = new THREE.Mesh(
+            new THREE.BoxGeometry(0.35, 0.15, 0.35),
+            cascoMat
+        );
+        casco.position.set(p[0], 0.075, p[2]);
+        grupo.add(casco);
+    });
+
+    // RABO
+    const rabo = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, 0.8, 0.15),
+        branco
+    );
+    rabo.position.set(0, 1.3, -1.1);
+    rabo.rotation.x = 0.3;
+    grupo.add(rabo);
+    const pontaRabo = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.2, 0.2),
+        preto
+    );
+    pontaRabo.position.set(0, 0.85, -1.25);
+    grupo.add(pontaRabo);
+
+    // MANCHAS PRETAS - igual da foto
+    const manchaGeo = new THREE.BoxGeometry(0.5, 0.5, 0.01);
+
+    // Mancha cabeça esquerda
+    const mancha1 = new THREE.Mesh(manchaGeo, preto);
+    mancha1.position.set(-0.4, 1.6, 2.06);
+    mancha1.rotation.y = 0.1;
+    grupo.add(mancha1);
+
+    // Mancha cabeça direita grande
+    const mancha2 = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.7, 0.01),
+        preto
+    );
+    mancha2.position.set(0.3, 1.2, 2.06);
+    mancha2.rotation.z = -0.2;
+    grupo.add(mancha2);
+
+    // Mancha orelha esquerda
+    const manchaOrelha = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.3, 0.01),
+        preto
+    );
+    manchaOrelha.position.set(-0.6, 1.5, 1.91);
+    manchaOrelha.rotation.y = Math.PI/2;
+    grupo.add(manchaOrelha);
+
+    // Manchas corpo
+    const manchasCorpo = [
+        [0.4, 1.5, 1.01], [-0.3, 1.0, 1.01], [0.2, 1.8, -0.5],
+        [-0.4, 1.3, -0.8], [0.5, 0.9, -0.3], [-0.2, 1.6, 0.2]
+    ];
+    manchasCorpo.forEach((p, i) => {
+        const m = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 0.4, 0.01),
+            preto
+        );
+        m.position.set(...p);
+        m.rotation.y = i % 2? 0 : Math.PI/2;
+        grupo.add(m);
+    });
+
+    // Mancha lateral
+    const manchaLateral = new THREE.Mesh(
+        new THREE.BoxGeometry(0.01, 0.5, 0.6),
+        preto
+    );
+    manchaLateral.position.set(0.61, 1.2, -0.3);
+    grupo.add(manchaLateral);
+
+    // Manchas pernas
+    const manchaPerna1 = new THREE.Mesh(
+        new THREE.BoxGeometry(0.25, 0.25, 0.01),
+        preto
+    );
+    manchaPerna1.position.set(-0.35, 0.8, 0.88);
+    grupo.add(manchaPerna1);
+
+    const manchaPerna2 = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.2, 0.01),
+        preto
+    );
+    manchaPerna2.position.set(0.35, 0.4, 0.88);
+    grupo.add(manchaPerna2);
+
+    // Escolhe galpão e spawna
+    const galpao = galpoesVacas[index % galpoesVacas.length];
+    const comprimento = galpao.userData.comprimento;
+    const area = galpao.userData.areaLivre;
+
+    const offsetX = THREE.MathUtils.randFloat(area.minX, area.maxX);
+    const offsetZ = THREE.MathUtils.randFloat(area.minZ, area.maxZ);
+
+    grupo.position.set(
+        melkstad.position.x + galpao.position.x + offsetX,
+        0,
+        melkstad.position.z + galpao.position.z + offsetZ
+    );
+    grupo.rotation.y = Math.random() * Math.PI * 2;
+
+    // Animação de andar - guarda pernas pra mexer depois
+    grupo.userData.pernas = grupo.children.filter(c =>
+        c.geometry.type === 'BoxGeometry' &&
+        c.position.y < 0.7 && // SÓ PERNAS FICAM ABAIXO DE 0.7
+    c.geometry.parameters.height > 1 // E TEM ALTURA DE PERNA
+);
+    grupo.userData.tempoAnim = 0;
+
+    scene.add(grupo);
+    vacas3D.push(grupo);
+}
+function animate() {
+    requestAnimationFrame(animate);
+    if(pausarJogo) return; // Move pra depois do requestAnimationFrame
+  moverVacas(); // COLA AQUI
+    atualizarCicloDiaNoite();
+    atualizarRelogio();
+   atualizarNevoa()
+    updateChunks(); 
+    const current = getCurrentVehicle();
+    const meshVeiculo = current.mesh;
+    const veiculoData = current;
+
+    if(!meshVeiculo ||!veiculoData) return;
+
+    // MINIMAPA
+    minimapaCamera.position.x = meshVeiculo.position.x;
+    minimapaCamera.position.z = meshVeiculo.position.z;
+    playerMarker.position.x = meshVeiculo.position.x;
+    playerMarker.position.z = meshVeiculo.position.z;
+    playerMarker.rotation.y = -meshVeiculo.rotation.y;
+
+    const fogTemp = scene.fog;
+    scene.fog = null;
+    minimapaRenderer.render(scene, minimapaCamera);
+    scene.fog = fogTemp;
+
+    // Som do motor
+    if(Math.abs(veiculoData.speed) > 0.05){
+        somMotor(true);
+        if(motorOsc) motorOsc.frequency.value = 60 + Math.abs(veiculoData.speed) * 40;
+    } else {
+        somMotor(false);
+    }
+
+    // MOVIMENTO
+    let velocidadeAlvo = 0;
+    let velocidadeMaxLocal = veiculoData.maxSpeed;
+
+    if (modoArar && currentVehicle === 'tractor') {
+        velocidadeMaxLocal = 0.5;
+    }
+
+    if (keys['w'] || keys['ArrowUp']) {
+        velocidadeAlvo = velocidadeMaxLocal;
+    }
+    if (keys['s'] || keys['ArrowDown']) {
+        velocidadeAlvo = -velocidadeMaxLocal * 0.6;
+    }
+
+    if (veiculoData.speed < velocidadeAlvo) {
+        veiculoData.speed += veiculoData.acceleration;
+        if (veiculoData.speed > velocidadeAlvo) veiculoData.speed = velocidadeAlvo;
+    }
+    if (veiculoData.speed > velocidadeAlvo) {
+        veiculoData.speed -= veiculoData.acceleration;
+        if (veiculoData.speed < velocidadeAlvo) veiculoData.speed = velocidadeAlvo;
+    }
+    if (velocidadeAlvo === 0) {
+        if (veiculoData.speed > 0) veiculoData.speed -= veiculoData.acceleration;
+        if (veiculoData.speed < 0) veiculoData.speed += veiculoData.acceleration;
+        if (Math.abs(veiculoData.speed) < 0.01) veiculoData.speed = 0;
+    }
+
+// === COLISÃO COM ÁRVORES ===
+if (Math.abs(veiculoData.speed) > 0.01) {
+    const direcao = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), meshVeiculo.rotation.y);
+    const nextPos = meshVeiculo.position.clone().add(direcao.multiplyScalar(veiculoData.speed));
+
+    let bateu = false;
+    for(const chunk of worldObjects.values()){
+        for(const obj of chunk.children){
+            if(obj.userData && obj.userData.tipo === 'tree'){
+                const dist = nextPos.distanceTo(obj.position);
+                if(dist < 2.5){ // raio do tronco + raio do trator
+                    bateu = true;
+                    break;
+                }
+            }
+        }
+        if(bateu) break;
+    }
+
+    if(!bateu){
+        meshVeiculo.position.copy(nextPos);
+    } else {
+        veiculoData.speed = 0; // Bateu, para o veículo
+    }
+}
+// === FIM COLISÃO ===
+
+    if (Math.abs(veiculoData.speed) > 0.05) {
+        let velocidadeCurva = 0.04;
+        if (currentVehicle === 'caminhao') velocidadeCurva = 0.03;
+
+        if (keys['a'] || keys['ArrowLeft']) {
+            meshVeiculo.rotation.y += velocidadeCurva;
+        }
+        if (keys['d'] || keys['ArrowRight']) {
+            meshVeiculo.rotation.y -= velocidadeCurva;
+        }
+    }
+
+    // IMPLEMENTO
+    if (implemento && tractor && currentVehicle === 'tractor') {
+        if (aradoEngatado && arado) {
+            arado.position.copy(tractor.position);
+            arado.rotation.copy(tractor.rotation);
+            arado.rotation.y += Math.PI;
+            arado.position.y = 0;
+            arado.translateZ(4);
+        }
+        if (plantadeiraEngatada && plantadeira) {
+            plantadeira.position.copy(tractor.position);
+            plantadeira.rotation.copy(tractor.rotation);
+            plantadeira.rotation.y += Math.PI;
+            plantadeira.position.y = 0;
+            plantadeira.translateZ(4);
+        }
+    }
+
+    // MODO ARAR
+    if (modoArar && campoAtual && posicaoInicialArar && tractor && currentVehicle === 'tractor') {
+        const distPercorrida = tractor.position.distanceTo(posicaoInicialArar);
+        const larguraCampo = 60;
+        campoAtual.progressoArado = Math.min(100, (distPercorrida / larguraCampo) * 100);
+
+        if (implemento === 'arado') {
+            campoAtual.mesh.material.color.set(0x4E342E);
+        } else if (implemento === 'plantadeira') {
+            campoAtual.mesh.material.color.set(0x556B2F);
+        }
+
+        if (campoAtual.progressoArado >= 100) {
+            finalizarCampo();
+        }
+    }
+
+    moverAnimais();
+
+    // CAMERA SEGUINDO VEÍCULO ATUAL
+    const distancia = 20;
+    const altura = 10;
+    const angle = meshVeiculo.rotation.y;
+
+    camera.position.x = meshVeiculo.position.x - Math.sin(angle) * distancia;
+    camera.position.z = meshVeiculo.position.z - Math.cos(angle) * distancia;
+    camera.position.y = meshVeiculo.position.y + altura;
+    camera.lookAt(meshVeiculo.position);
+
+// PRODUÇÃO DE LEITE
+if(vacas > 0){
+    const leiteAntes = Math.floor(leite);
+    leite += vacas * producaoPorSegundo * (1/60); // 60fps
+    if(Math.floor(leite) > leiteAntes){
+        updateHUD();
+    }
+}
+  // DETECTA CAMPO ATUAL PRA MOSTRAR VIDA NO HUD
+let campoProximoHUD = null;
+const posVeiculo = vehicles[currentVehicle].mesh.position;
+
+for (let campo of campos) {
+    if (posVeiculo.distanceTo(campo.mesh.position) < 35) {
+        campoProximoHUD = campo;
+        break;
+    }
+}
+
+// Só atualiza se mudou de campo
+if (campoProximoHUD!== campoAtualHUD) {
+    campoAtualHUD = campoProximoHUD;
+    atualizarBarraVidaCampo();
+}
+
+// Atualiza barra se tá num campo
+if (campoAtualHUD) {
+    atualizarBarraVidaCampo();
+}
+    renderer.render(scene, camera);
+}
+function engatarArado(){
+    if(tractor.position.distanceTo(arado.position) < 15){
+        aradoEngatado = true;
+        plantadeiraEngatada = false;
+        colheitadeiraEngatada = false;
+        implemento = 'arado';
+        // arado.visible = false; <-- APAGA ESSA LINHA
+        mostraMsg('🔧 Arado engatado! Vá no campo e aperte E pra começar');
+    } else {
+        mostraMsg('❌ Chegue perto do arado na garagem');
+    }
+}
+
+function engatarPlantadeira(){
+    if(tractor.position.distanceTo(plantadeira.position) < 15){
+        plantadeiraEngatada = true;
+        aradoEngatado = false;
+        colheitadeiraEngatada = false;
+        implemento = 'plantadeira';
+        // plantadeira.visible = false; <-- APAGA ESSA LINHA TAMBÉM
+        mostraMsg('🔧 Plantadeira engatada! Are a terra primeiro, depois E pra plantar');
+    } else {
+        mostraMsg('❌ Chegue perto da plantadeira na garagem');
+    }
+}
+function usarImplemento(){
+  let campoProximo = campos.find(c => tractor.position.distanceTo(c.mesh.position) < 35);
+  if(!campoProximo){
+    mostraMsg('❌ Chegue perto de um campo');
+    return;
+  }
+if(!campoProximo.comprado){
+  mostraMsg('❌ Compre este terreno primeiro! Aperte F');
+  return;
+}
+  if(implemento === 'arado' && !campoProximo.arado && !campoProximo.plantado && !modoArar){
+    modoArar = true;
+    campoAtual = campoProximo;
+    campoAtual.arando = true;
+    campoAtual.progressoArado = 0;
+    posicaoInicialArar = tractor.position.clone();
+    const centroCampoX = campoProximo.mesh.position.x;
+    direcaoArar = tractor.position.x < centroCampoX? 1 : -1;
+    mostraMsg('🚜 MODO ARAR ATIVO! Atravesse o campo devagar');
+    updateHUD(); // CORRETO
+    return;
+  }
+
+  if(implemento === 'plantadeira' && campoProximo.arado && !campoProximo.plantado && sementes > 0 && !modoArar){
+    modoArar = true;
+    campoAtual = campoProximo;
+    campoAtual.arando = true;
+    campoAtual.progressoArado = 0;
+    posicaoInicialArar = tractor.position.clone();
+    const centroCampoX = campoProximo.mesh.position.x;
+    direcaoArar = tractor.position.x < centroCampoX? 1 : -1;
+    mostraMsg('🌱 MODO PLANTAR ATIVO! Atravesse o campo devagar');
+    updateHUD(); // CORRETO
+    return;
+  }
+
+  if(implemento === 'plantadeira' && !campoProximo.arado){
+    mostraMsg('❌ Precisa arar a terra primeiro! Use o arado');
+  }
+  else if(sementes == 0){
+    mostraMsg('❌ Sem sementes!');
+  }
+  else if(modoArar){
+    mostraMsg('❌ Termine de arar/plantar primeiro!');
+  }
+  else {
+    mostraMsg('❌ Implemento errado ou campo já plantado');
+  }
+}
+  function trocarVeiculo(veiculoEspecifico = null) {
+    // Se passou um veículo específico, usa ele. Se não, pega o próximo da lista
+    if (veiculoEspecifico) {
+        vehicles.current = veiculoEspecifico;
+        currentVehicle = veiculoEspecifico.type;
+    } else {
+        const ordem = ['tractor', 'colheitadeira', 'caminhao'];
+        let idx = ordem.indexOf(currentVehicle);
+        idx = (idx + 1) % ordem.length;
+        currentVehicle = ordem[idx];
+        vehicles.current = vehicles[currentVehicle];
+    }
+
+    const v = vehicles.current;
+    const pos = v.mesh.position;
+
+    // Teletransporta a câmera pra trás do veículo
+    camera.position.set(pos.x, pos.y + 15, pos.z + 25);
+    camera.lookAt(pos.x, pos.y, pos.z);
+
+    // Se tu usa OrbitControls
+    if (typeof controls!== 'undefined') {
+        controls.target.set(pos.x, pos.y, pos.z);
+        controls.update();
+    }
+
+    updateHUD();
+    mostraMsg(`🚜 ${currentVehicle.toUpperCase()} | Vel: ${v.maxSpeed} | Carga: ${v.storage}/${v.maxStorage}`);
+}
+function comprarVaca(){
+    if(dinheiro >= precoVaca){
+        dinheiro -= precoVaca;
+        vacas++;
+        criarVaca3D(vacas - 1); // -1 pq array começa em 0
+        updateHUD();
+        mostraMsg('🐄 Vaca comprada! Total: ' + vacas);
+    } else {
+        mostraMsg('❌ Dinheiro insuficiente');
+    }
+}
+
+function venderLeite(){
+    if(leite >= 1){
+        const litros = Math.floor(leite);
+        const ganho = litros * precoLeite;
+        dinheiro += ganho;
+        leite -= litros;
+        updateHUD();
+        mostraMsg(`🥛 Vendeu ${litros}L por R$${ganho}`);
+    
+    } else {
+        mostraMsg('❌ Sem leite suficiente');
+    }
+}
+// 3. SÓ CHAMA updateHUD() DEPOIS QUE A PÁGINA CARREGAR
+document.addEventListener('DOMContentLoaded', () => {
+    updateHUD(); // Primeira vez que mostra os valores
+});
+window.addEventListener('keydown', (e) => {
+    if(modoEscolhaAgrotoxico || pausarJogo) return;
+    const key = e.key.toLowerCase();
+    if (key === 'tab') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        trocarVeiculo();
+        return;
+    }
+    keys[key] = true;
+    if(key === 'f') comprarTerreno();
+    if(key === 'p') abrirLoja();
+    if(key === '1') engatarArado();
+    if(key === '2') engatarPlantadeira();
+    if(key === '0') desengatar();
+    if(key === 'e') usarImplemento();
+    if(key === 'c') colherComColheitadeira();
+    if(key === 'r') descarregarColheitadeira();
+    if(key === 'b') venderDoCaminhao();
+    if(key === 'l'){
+        if(tutorialAtivo) fecharTutorial();
+        else abrirTutorial();
+    }
+}, true);
+  window.addEventListener('keyup', (e) => {keys[e.key.toLowerCase()] = false;});
+animate();
+</script>
+</body>
+</html>
